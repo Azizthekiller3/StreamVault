@@ -3,13 +3,22 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Kapoor Ka Ghulam - Media streaming app API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: watchlist
+    description: Watchlist management
+  - name: history
+    description: Watch history management
+  - name: providers
+    description: Streaming provider management
+  - name: search
+    description: Content search
+
 paths:
   /healthz:
     get:
@@ -24,6 +33,236 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /watchlist:
+    get:
+      operationId: getWatchlist
+      tags: [watchlist]
+      summary: Get watchlist
+      description: Returns all items in the user's watchlist
+      responses:
+        "200":
+          description: Watchlist items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WatchlistItem"
+
+    post:
+      operationId: addToWatchlist
+      tags: [watchlist]
+      summary: Add to watchlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistInput"
+      responses:
+        "201":
+          description: Added to watchlist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistItem"
+
+  /watchlist/{id}:
+    delete:
+      operationId: removeFromWatchlist
+      tags: [watchlist]
+      summary: Remove from watchlist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /history:
+    get:
+      operationId: getHistory
+      tags: [history]
+      summary: Get watch history
+      description: Returns all watch history items
+      responses:
+        "200":
+          description: Watch history items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HistoryItem"
+
+    post:
+      operationId: upsertHistory
+      tags: [history]
+      summary: Add or update watch history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HistoryInput"
+      responses:
+        "200":
+          description: Updated history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryItem"
+
+    delete:
+      operationId: clearHistory
+      tags: [history]
+      summary: Clear all watch history
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /history/{id}:
+    delete:
+      operationId: deleteHistoryItem
+      tags: [history]
+      summary: Delete single history item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /providers:
+    get:
+      operationId: getProviders
+      tags: [providers]
+      summary: Get all installed providers
+      responses:
+        "200":
+          description: List of providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Provider"
+
+    post:
+      operationId: addProvider
+      tags: [providers]
+      summary: Add a new provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderInput"
+      responses:
+        "201":
+          description: Provider added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+
+  /providers/{id}:
+    delete:
+      operationId: removeProvider
+      tags: [providers]
+      summary: Remove a provider
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /search:
+    get:
+      operationId: searchContent
+      tags: [search]
+      summary: Search movies and TV shows via OMDB
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [movie, series, episode]
+          description: Content type filter
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+
+  /info:
+    get:
+      operationId: getContentInfo
+      tags: [search]
+      summary: Get detailed content info by IMDB ID
+      parameters:
+        - name: imdbId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Content details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentInfo"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [watchlist]
+      summary: Get user stats (watchlist count, history count, providers count)
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStats"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +273,265 @@ components:
       required:
         - status
 
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    WatchlistItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: ["string", "null"]
+        rating:
+          type: ["string", "null"]
+        year:
+          type: ["string", "null"]
+        addedAt:
+          type: string
+      required:
+        - id
+        - title
+        - poster
+        - link
+        - provider
+        - type
+        - addedAt
+
+    WatchlistInput:
+      type: object
+      properties:
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: string
+        rating:
+          type: string
+        year:
+          type: string
+      required:
+        - title
+        - poster
+        - link
+        - provider
+        - type
+
+    HistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: ["string", "null"]
+        progress:
+          type: ["number", "null"]
+        duration:
+          type: ["number", "null"]
+        episodeTitle:
+          type: ["string", "null"]
+        watchedAt:
+          type: string
+      required:
+        - id
+        - title
+        - poster
+        - link
+        - provider
+        - type
+        - watchedAt
+
+    HistoryInput:
+      type: object
+      properties:
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: string
+        progress:
+          type: number
+        duration:
+          type: number
+        episodeTitle:
+          type: string
+      required:
+        - title
+        - poster
+        - link
+        - provider
+        - type
+
+    Provider:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+        icon:
+          type: ["string", "null"]
+        enabled:
+          type: boolean
+        installedAt:
+          type: string
+      required:
+        - id
+        - name
+        - url
+        - type
+        - enabled
+        - installedAt
+
+    ProviderInput:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+        icon:
+          type: string
+      required:
+        - name
+        - url
+        - type
+
+    SearchResult:
+      type: object
+      properties:
+        imdbId:
+          type: string
+        title:
+          type: string
+        year:
+          type: string
+        type:
+          type: string
+        poster:
+          type: string
+      required:
+        - imdbId
+        - title
+        - year
+        - type
+        - poster
+
+    SearchResults:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchResult"
+        totalResults:
+          type: integer
+      required:
+        - results
+        - totalResults
+
+    ContentInfo:
+      type: object
+      properties:
+        imdbId:
+          type: string
+        title:
+          type: string
+        year:
+          type: string
+        type:
+          type: string
+        poster:
+          type: string
+        plot:
+          type: string
+        rating:
+          type: string
+        genre:
+          type: string
+        director:
+          type: ["string", "null"]
+        actors:
+          type: string
+        runtime:
+          type: string
+        totalSeasons:
+          type: ["string", "null"]
+        language:
+          type: string
+        country:
+          type: string
+      required:
+        - imdbId
+        - title
+        - year
+        - type
+        - poster
+        - plot
+        - rating
+        - genre
+        - actors
+        - runtime
+        - language
+        - country
+
+    UserStats:
+      type: object
+      properties:
+        watchlistCount:
+          type: integer
+        historyCount:
+          type: integer
+        providersCount:
+          type: integer
+      required:
+        - watchlistCount
+        - historyCount
+        - providersCount
