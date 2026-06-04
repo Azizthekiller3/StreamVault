@@ -1,14 +1,22 @@
-import { useGetWatchlist, useRemoveFromWatchlist } from "@workspace/api-client-react";
+import { useGetWatchlist, useRemoveFromWatchlist, getGetWatchlistQueryKey } from "@workspace/api-client-react";
 import { PosterCard } from "@/components/poster-card";
 import { Bookmark, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Watchlist() {
   const { data: watchlist, isLoading } = useGetWatchlist();
-  const removeFromWatchlist = useRemoveFromWatchlist();
+  const queryClient = useQueryClient();
+  const removeFromWatchlist = useRemoveFromWatchlist({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetWatchlistQueryKey() });
+      }
+    }
+  });
   const { toast } = useToast();
 
   const handleRemove = async (id: number) => {
@@ -39,7 +47,12 @@ export default function Watchlist() {
               transition={{ delay: Math.min(i * 0.05, 0.5) }}
             >
               <PosterCard 
-                {...item} 
+                imdbId={item.imdbId}
+                link={item.link}
+                title={item.title}
+                poster={item.poster}
+                year={item.year}
+                type={item.type}
                 actionIcon="remove"
                 onRemove={() => handleRemove(item.id)} 
               />

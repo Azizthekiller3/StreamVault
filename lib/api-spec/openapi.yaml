@@ -2,22 +2,20 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: Kapoor Ka Ghulam - Media streaming app API
+  version: 0.2.0
+  description: Kapoor Ka Ghulam - Full streaming app API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: sources
+  - name: extensions
+  - name: content
   - name: watchlist
-    description: Watchlist management
   - name: history
-    description: Watch history management
-  - name: providers
-    description: Streaming provider management
+  - name: settings
   - name: search
-    description: Content search
 
 paths:
   /healthz:
@@ -25,7 +23,6 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -34,45 +31,45 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  /watchlist:
+  # ── Provider Sources ─────────────────────────────────────────
+  /sources:
     get:
-      operationId: getWatchlist
-      tags: [watchlist]
-      summary: Get watchlist
-      description: Returns all items in the user's watchlist
+      operationId: getSources
+      tags: [sources]
+      summary: Get all provider sources
       responses:
         "200":
-          description: Watchlist items
+          description: List of sources
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/WatchlistItem"
+                  $ref: "#/components/schemas/ProviderSource"
 
     post:
-      operationId: addToWatchlist
-      tags: [watchlist]
-      summary: Add to watchlist
+      operationId: addSource
+      tags: [sources]
+      summary: Add a provider source (GitHub URL or author name)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/WatchlistInput"
+              $ref: "#/components/schemas/AddSourceBody"
       responses:
         "201":
-          description: Added to watchlist
+          description: Source added
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WatchlistItem"
+                $ref: "#/components/schemas/ProviderSource"
 
-  /watchlist/{id}:
+  /sources/{id}:
     delete:
-      operationId: removeFromWatchlist
-      tags: [watchlist]
-      summary: Remove from watchlist
+      operationId: removeSource
+      tags: [sources]
+      summary: Remove a provider source
       parameters:
         - name: id
           in: path
@@ -87,57 +84,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
-  /history:
-    get:
-      operationId: getHistory
-      tags: [history]
-      summary: Get watch history
-      description: Returns all watch history items
-      responses:
-        "200":
-          description: Watch history items
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HistoryItem"
-
-    post:
-      operationId: upsertHistory
-      tags: [history]
-      summary: Add or update watch history
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HistoryInput"
-      responses:
-        "200":
-          description: Updated history
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HistoryItem"
-
-    delete:
-      operationId: clearHistory
-      tags: [history]
-      summary: Clear all watch history
-      responses:
-        "200":
-          description: Cleared
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessResponse"
-
-  /history/{id}:
-    delete:
-      operationId: deleteHistoryItem
-      tags: [history]
-      summary: Delete single history item
+  /sources/{id}/default:
+    put:
+      operationId: setDefaultSource
+      tags: [sources]
+      summary: Set a source as default
       parameters:
         - name: id
           in: path
@@ -146,50 +97,73 @@ paths:
             type: integer
       responses:
         "200":
-          description: Deleted
+          description: Updated
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
-  /providers:
+  # ── Manifest / Extensions ────────────────────────────────────
+  /manifest:
     get:
-      operationId: getProviders
-      tags: [providers]
-      summary: Get all installed providers
+      operationId: fetchManifest
+      tags: [extensions]
+      summary: Fetch manifest from a provider source
+      parameters:
+        - name: sourceId
+          in: query
+          required: true
+          schema:
+            type: integer
       responses:
         "200":
-          description: List of providers
+          description: Manifest entries
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Provider"
+                  $ref: "#/components/schemas/ManifestEntry"
 
+  /extensions:
+    get:
+      operationId: getExtensions
+      tags: [extensions]
+      summary: Get all installed extensions
+      responses:
+        "200":
+          description: Installed extensions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Extension"
+
+  /extensions/install:
     post:
-      operationId: addProvider
-      tags: [providers]
-      summary: Add a new provider
+      operationId: installExtension
+      tags: [extensions]
+      summary: Install an extension (downloads and caches JS modules)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ProviderInput"
+              $ref: "#/components/schemas/InstallExtensionBody"
       responses:
         "201":
-          description: Provider added
+          description: Installed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Provider"
+                $ref: "#/components/schemas/Extension"
 
-  /providers/{id}:
+  /extensions/{id}:
     delete:
-      operationId: removeProvider
-      tags: [providers]
-      summary: Remove a provider
+      operationId: uninstallExtension
+      tags: [extensions]
+      summary: Uninstall an extension
       parameters:
         - name: id
           in: path
@@ -198,12 +172,178 @@ paths:
             type: integer
       responses:
         "200":
-          description: Removed
+          description: Uninstalled
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
+  # ── Content via Extensions ───────────────────────────────────
+  /catalog:
+    get:
+      operationId: getCatalog
+      tags: [content]
+      summary: Get catalog categories for an extension
+      parameters:
+        - name: extId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Catalog categories
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogResponse"
+
+  /posts:
+    get:
+      operationId: getPosts
+      tags: [content]
+      summary: Get posts for a catalog filter
+      parameters:
+        - name: extId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: filter
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+
+  /posts/search:
+    get:
+      operationId: searchPosts
+      tags: [content]
+      summary: Search posts in an extension
+      parameters:
+        - name: extId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Post"
+
+  /meta:
+    get:
+      operationId: getMeta
+      tags: [content]
+      summary: Get metadata for a content item from extension
+      parameters:
+        - name: extId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: link
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Content metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentMeta"
+
+  /streams:
+    get:
+      operationId: getStreams
+      tags: [content]
+      summary: Get stream URLs for a content item
+      parameters:
+        - name: extId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: link
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stream URLs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Stream"
+
+  /episodes:
+    get:
+      operationId: getEpisodes
+      tags: [content]
+      summary: Get episodes for a series season
+      parameters:
+        - name: extId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Episodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EpisodeLink"
+
+  # ── OMDB Search ───────────────────────────────────────────────
   /search:
     get:
       operationId: searchContent
@@ -215,14 +355,12 @@ paths:
           required: true
           schema:
             type: string
-          description: Search query
         - name: type
           in: query
           required: false
           schema:
             type: string
             enum: [movie, series, episode]
-          description: Content type filter
       responses:
         "200":
           description: Search results
@@ -250,11 +388,162 @@ paths:
               schema:
                 $ref: "#/components/schemas/ContentInfo"
 
+  # ── Watchlist ─────────────────────────────────────────────────
+  /watchlist:
+    get:
+      operationId: getWatchlist
+      tags: [watchlist]
+      summary: Get watchlist
+      responses:
+        "200":
+          description: Watchlist items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WatchlistItem"
+
+    post:
+      operationId: addToWatchlist
+      tags: [watchlist]
+      summary: Add to watchlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistInput"
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistItem"
+
+  /watchlist/{id}:
+    delete:
+      operationId: removeFromWatchlist
+      tags: [watchlist]
+      summary: Remove from watchlist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ── History ───────────────────────────────────────────────────
+  /history:
+    get:
+      operationId: getHistory
+      tags: [history]
+      summary: Get watch history
+      responses:
+        "200":
+          description: History items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HistoryItem"
+
+    post:
+      operationId: upsertHistory
+      tags: [history]
+      summary: Add or update watch history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HistoryInput"
+      responses:
+        "200":
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryItem"
+
+    delete:
+      operationId: clearHistory
+      tags: [history]
+      summary: Clear all history
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /history/{id}:
+    delete:
+      operationId: deleteHistoryItem
+      tags: [history]
+      summary: Delete a history item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ── Settings ──────────────────────────────────────────────────
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get all settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
+  # ── Stats ─────────────────────────────────────────────────────
   /stats:
     get:
       operationId: getStats
       tags: [watchlist]
-      summary: Get user stats (watchlist count, history count, providers count)
+      summary: Get user stats
       responses:
         "200":
           description: Stats
@@ -270,8 +559,7 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
     SuccessResponse:
       type: object
@@ -280,130 +568,10 @@ components:
           type: boolean
         message:
           type: string
-      required:
-        - success
+      required: [success]
 
-    WatchlistItem:
-      type: object
-      properties:
-        id:
-          type: integer
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: ["string", "null"]
-        rating:
-          type: ["string", "null"]
-        year:
-          type: ["string", "null"]
-        addedAt:
-          type: string
-      required:
-        - id
-        - title
-        - poster
-        - link
-        - provider
-        - type
-        - addedAt
-
-    WatchlistInput:
-      type: object
-      properties:
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: string
-        rating:
-          type: string
-        year:
-          type: string
-      required:
-        - title
-        - poster
-        - link
-        - provider
-        - type
-
-    HistoryItem:
-      type: object
-      properties:
-        id:
-          type: integer
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: ["string", "null"]
-        progress:
-          type: ["number", "null"]
-        duration:
-          type: ["number", "null"]
-        episodeTitle:
-          type: ["string", "null"]
-        watchedAt:
-          type: string
-      required:
-        - id
-        - title
-        - poster
-        - link
-        - provider
-        - type
-        - watchedAt
-
-    HistoryInput:
-      type: object
-      properties:
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: string
-        progress:
-          type: number
-        duration:
-          type: number
-        episodeTitle:
-          type: string
-      required:
-        - title
-        - poster
-        - link
-        - provider
-        - type
-
-    Provider:
+    # ── Sources ─────────────────────────────────────────────────
+    ProviderSource:
       type: object
       properties:
         id:
@@ -412,38 +580,194 @@ components:
           type: string
         url:
           type: string
+        isDefault:
+          type: boolean
+        addedAt:
+          type: string
+      required: [id, name, url, isDefault, addedAt]
+
+    AddSourceBody:
+      type: object
+      properties:
+        input:
+          type: string
+          description: GitHub author, repo URL, or raw URL
+      required: [input]
+
+    # ── Extensions ───────────────────────────────────────────────
+    ManifestEntry:
+      type: object
+      properties:
+        value:
+          type: string
+        displayName:
+          type: string
+        type:
+          type: string
+        version:
+          type: string
+        icon:
+          type: ["string", "null"]
+        disabled:
+          type: boolean
+      required: [value, displayName, type, version, disabled]
+
+    Extension:
+      type: object
+      properties:
+        id:
+          type: integer
+        sourceAuthor:
+          type: string
+        value:
+          type: string
+        displayName:
+          type: string
         type:
           type: string
         icon:
           type: ["string", "null"]
+        version:
+          type: string
         enabled:
           type: boolean
         installedAt:
           type: string
-      required:
-        - id
-        - name
-        - url
-        - type
-        - enabled
-        - installedAt
+      required: [id, sourceAuthor, value, displayName, type, version, enabled, installedAt]
 
-    ProviderInput:
+    InstallExtensionBody:
       type: object
       properties:
-        name:
+        sourceId:
+          type: integer
+        value:
           type: string
-        url:
+        displayName:
           type: string
         type:
           type: string
         icon:
           type: string
-      required:
-        - name
-        - url
-        - type
+        version:
+          type: string
+      required: [sourceId, value, displayName, type, version]
 
+    # ── Content ──────────────────────────────────────────────────
+    CatalogItem:
+      type: object
+      properties:
+        title:
+          type: string
+        filter:
+          type: string
+      required: [title, filter]
+
+    CatalogResponse:
+      type: object
+      properties:
+        catalog:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogItem"
+        genres:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogItem"
+      required: [catalog, genres]
+
+    Post:
+      type: object
+      properties:
+        title:
+          type: string
+        link:
+          type: string
+        image:
+          type: string
+        provider:
+          type: ["string", "null"]
+      required: [title, link, image]
+
+    DirectLink:
+      type: object
+      properties:
+        title:
+          type: string
+        link:
+          type: string
+        type:
+          type: ["string", "null"]
+      required: [title, link]
+
+    LinkItem:
+      type: object
+      properties:
+        title:
+          type: string
+        quality:
+          type: ["string", "null"]
+        episodesLink:
+          type: ["string", "null"]
+        directLinks:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/DirectLink"
+      required: [title]
+
+    ContentMeta:
+      type: object
+      properties:
+        title:
+          type: string
+        image:
+          type: string
+        synopsis:
+          type: string
+        imdbId:
+          type: ["string", "null"]
+        type:
+          type: string
+        tags:
+          type: ["array", "null"]
+          items:
+            type: string
+        cast:
+          type: ["array", "null"]
+          items:
+            type: string
+        rating:
+          type: ["string", "null"]
+        linkList:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkItem"
+      required: [title, image, synopsis, type, linkList]
+
+    Stream:
+      type: object
+      properties:
+        server:
+          type: string
+        link:
+          type: string
+        type:
+          type: string
+        quality:
+          type: ["string", "null"]
+        headers:
+          type: ["object", "null"]
+      required: [server, link, type]
+
+    EpisodeLink:
+      type: object
+      properties:
+        title:
+          type: string
+        link:
+          type: string
+      required: [title, link]
+
+    # ── OMDB ─────────────────────────────────────────────────────
     SearchResult:
       type: object
       properties:
@@ -457,12 +781,7 @@ components:
           type: string
         poster:
           type: string
-      required:
-        - imdbId
-        - title
-        - year
-        - type
-        - poster
+      required: [imdbId, title, year, type, poster]
 
     SearchResults:
       type: object
@@ -473,9 +792,7 @@ components:
             $ref: "#/components/schemas/SearchResult"
         totalResults:
           type: integer
-      required:
-        - results
-        - totalResults
+      required: [results, totalResults]
 
     ContentInfo:
       type: object
@@ -508,20 +825,125 @@ components:
           type: string
         country:
           type: string
-      required:
-        - imdbId
-        - title
-        - year
-        - type
-        - poster
-        - plot
-        - rating
-        - genre
-        - actors
-        - runtime
-        - language
-        - country
+      required: [imdbId, title, year, type, poster, plot, rating, genre, actors, runtime, language, country]
 
+    # ── Watchlist ─────────────────────────────────────────────────
+    WatchlistItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: ["string", "null"]
+        rating:
+          type: ["string", "null"]
+        year:
+          type: ["string", "null"]
+        addedAt:
+          type: string
+      required: [id, title, poster, link, provider, type, addedAt]
+
+    WatchlistInput:
+      type: object
+      properties:
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: string
+        rating:
+          type: string
+        year:
+          type: string
+      required: [title, poster, link, provider, type]
+
+    # ── History ───────────────────────────────────────────────────
+    HistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: ["string", "null"]
+        progress:
+          type: ["number", "null"]
+        duration:
+          type: ["number", "null"]
+        episodeTitle:
+          type: ["string", "null"]
+        watchedAt:
+          type: string
+      required: [id, title, poster, link, provider, type, watchedAt]
+
+    HistoryInput:
+      type: object
+      properties:
+        title:
+          type: string
+        poster:
+          type: string
+        link:
+          type: string
+        provider:
+          type: string
+        type:
+          type: string
+        imdbId:
+          type: string
+        progress:
+          type: number
+        duration:
+          type: number
+        episodeTitle:
+          type: string
+      required: [title, poster, link, provider, type]
+
+    # ── Settings ──────────────────────────────────────────────────
+    AppSettings:
+      type: object
+      properties:
+        activeExtId:
+          type: ["integer", "null"]
+        theme:
+          type: string
+      required: [activeExtId, theme]
+
+    AppSettingsInput:
+      type: object
+      properties:
+        activeExtId:
+          type: integer
+        theme:
+          type: string
+
+    # ── Stats ─────────────────────────────────────────────────────
     UserStats:
       type: object
       properties:
@@ -529,9 +951,8 @@ components:
           type: integer
         historyCount:
           type: integer
-        providersCount:
+        extensionsCount:
           type: integer
-      required:
-        - watchlistCount
-        - historyCount
-        - providersCount
+        sourcesCount:
+          type: integer
+      required: [watchlistCount, historyCount, extensionsCount, sourcesCount]

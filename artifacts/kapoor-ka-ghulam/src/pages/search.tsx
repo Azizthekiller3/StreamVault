@@ -7,7 +7,6 @@ import { PosterCard } from "@/components/poster-card";
 import { useSearchContent } from "@workspace/api-client-react";
 
 export default function Search() {
-  const [location] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   const initialQuery = searchParams.get("q") || "";
   
@@ -38,7 +37,7 @@ export default function Search() {
         <div className="relative max-w-2xl">
           <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
           <Input 
-            placeholder="Search for movies, shows, or actors..." 
+            placeholder="Search OMDB for movies & shows..." 
             className="w-full pl-12 h-14 bg-black/40 backdrop-blur-md border-white/10 text-lg rounded-full focus-visible:ring-primary focus-visible:border-primary shadow-2xl"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -59,14 +58,14 @@ export default function Search() {
             Found {data.totalResults} results for <span className="text-white font-medium">"{debouncedQuery}"</span>
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-            {data.results.map((result, i) => (
+            {data.results.map((result: any, i: number) => (
               <motion.div
                 key={`${result.imdbId}-${i}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(i * 0.05, 0.5) }}
               >
-                <PosterCard {...result} />
+                <PosterCard imdbId={result.imdbId} title={result.title} poster={result.poster} year={result.year} type={result.type} />
               </motion.div>
             ))}
           </div>

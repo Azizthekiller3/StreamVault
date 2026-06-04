@@ -9,34 +9,43 @@ import Search from "@/pages/search";
 import Info from "@/pages/info";
 import Watchlist from "@/pages/watchlist";
 import History from "@/pages/history";
-import Providers from "@/pages/providers";
+import Marketplace from "@/pages/marketplace";
 import Settings from "@/pages/settings";
+import Watch from "@/pages/watch";
+import Browse from "@/pages/browse";
 
-const queryClient = new QueryClient();
-
-function Router() {
-  return (
-    <Layout>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/search" component={Search} />
-        <Route path="/info/:imdbId" component={Info} />
-        <Route path="/watchlist" component={Watchlist} />
-        <Route path="/history" component={History} />
-        <Route path="/providers" component={Providers} />
-        <Route path="/settings" component={Settings} />
-        <Route component={NotFound} />
-      </Switch>
-    </Layout>
-  );
-}
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: false,
+    },
+  },
+});
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+        <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}>
+          <Switch>
+            <Route path="/watch" component={Watch} />
+            <Route>
+              <Layout>
+                <Switch>
+                  <Route path="/" component={Home} />
+                  <Route path="/search" component={Search} />
+                  <Route path="/info" component={Info} />
+                  <Route path="/browse" component={Browse} />
+                  <Route path="/watchlist" component={Watchlist} />
+                  <Route path="/history" component={History} />
+                  <Route path="/marketplace" component={Marketplace} />
+                  <Route path="/settings" component={Settings} />
+                  <Route component={NotFound} />
+                </Switch>
+              </Layout>
+            </Route>
+          </Switch>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

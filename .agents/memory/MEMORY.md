@@ -1,0 +1,2 @@
+- [Orval Zod conflict fix](orval-zod-conflict.md) — removing `schemas` from zod orval config prevents duplicate TS type + Zod name conflicts in api-zod/src/index.ts
+- [Extension system architecture](extension-system.md) — how Vega-compatible provider extensions work: sources → manifest → install JS modules → execute via vm sandbox

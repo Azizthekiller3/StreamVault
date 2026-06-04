@@ -1,9 +1,10 @@
-import { useGetHistory, useDeleteHistoryItem, useClearHistory } from "@workspace/api-client-react";
+import { useGetHistory, useDeleteHistoryItem, useClearHistory, getGetHistoryQueryKey } from "@workspace/api-client-react";
 import { PosterCard } from "@/components/poster-card";
 import { Clock, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,8 +19,21 @@ import {
 
 export default function History() {
   const { data: history, isLoading } = useGetHistory();
-  const deleteItem = useDeleteHistoryItem();
-  const clearHistory = useClearHistory();
+  const queryClient = useQueryClient();
+  const deleteItem = useDeleteHistoryItem({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetHistoryQueryKey() });
+      }
+    }
+  });
+  const clearHistory = useClearHistory({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetHistoryQueryKey() });
+      }
+    }
+  });
   const { toast } = useToast();
 
   const handleRemove = async (id: number) => {
@@ -82,7 +96,12 @@ export default function History() {
               transition={{ delay: Math.min(i * 0.05, 0.5) }}
             >
               <PosterCard 
-                {...item} 
+                imdbId={item.imdbId}
+                link={item.link}
+                title={item.title}
+                poster={item.poster}
+                type={item.type}
+                progress={item.progress}
                 actionIcon="remove"
                 onRemove={() => handleRemove(item.id)} 
               />

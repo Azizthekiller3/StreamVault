@@ -1,9 +1,10 @@
-import { Info, Settings as SettingsIcon, AlertTriangle } from "lucide-react";
+import { Info, Settings as SettingsIcon, AlertTriangle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { useClearHistory } from "@workspace/api-client-react";
+import { useClearHistory, useGetSettings, useUpdateSettings, useGetStats, useGetExtensions, getGetSettingsQueryKey, getGetStatsQueryKey, getGetHistoryQueryKey } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { useActiveExtension } from "@/hooks/use-active-extension";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,14 +16,45 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 export default function Settings() {
-  const clearHistory = useClearHistory();
+  const queryClient = useQueryClient();
+  const clearHistory = useClearHistory({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetHistoryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey() });
+      }
+    }
+  });
+  
+  const updateSettings = useUpdateSettings({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
+      }
+    }
+  });
+
+  const { activeExtId, isLoading: isExtLoading } = useActiveExtension();
+  const { data: stats } = useGetStats();
+  const { data: extensions } = useGetExtensions();
   const { toast } = useToast();
 
   const handleClearData = async () => {
     await clearHistory.mutateAsync();
     toast({ title: "Local data cleared" });
+  };
+
+  const handleExtensionChange = async (val: string) => {
+    await updateSettings.mutateAsync({
+      data: {
+        activeExtId: val === "none" ? null : Number(val)
+      }
+    });
+    toast({ title: "Active extension updated" });
   };
 
   return (
@@ -33,20 +65,67 @@ export default function Settings() {
       </div>
 
       <div className="space-y-8">
+        
         <Card className="bg-card border-border/50 shadow-none">
           <CardHeader>
             <CardTitle className="font-serif flex items-center gap-2">
-              <Info className="w-5 h-5 text-primary" /> About
+              <SettingsIcon className="w-5 h-5 text-primary" /> Preferences
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Active Extension</Label>
+              <Select 
+                value={activeExtId ? activeExtId.toString() : "none"} 
+                onValueChange={handleExtensionChange}
+                disabled={isExtLoading}
+              >
+                <SelectTrigger className="bg-black/40 border-white/10">
+                  <SelectValue placeholder="Select an extension" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {extensions?.map((ext) => (
+                    <SelectItem key={ext.id} value={ext.id.toString()}>
+                      {ext.displayName} v{ext.version}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">This extension will be used for browsing and searching content.</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-border/50 shadow-none">
+          <CardHeader>
+            <CardTitle className="font-serif flex items-center gap-2">
+              <Info className="w-5 h-5 text-primary" /> About & Stats
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold font-mono">{stats?.historyCount || 0}</div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">History</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold font-mono">{stats?.watchlistCount || 0}</div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">Watchlist</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold font-mono">{stats?.sourcesCount || 0}</div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">Sources</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold font-mono">{stats?.extensionsCount || 0}</div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">Extensions</div>
+              </div>
+            </div>
+
             <div className="flex justify-between items-center py-2 border-b border-border/50">
               <span className="text-muted-foreground">Version</span>
               <span className="font-mono text-sm">v1.0.0 Director's Cut</span>
-            </div>
-            <div className="flex justify-between items-center py-2 border-b border-border/50">
-              <span className="text-muted-foreground">Build</span>
-              <span className="font-mono text-sm">Replit Agent</span>
             </div>
             <div className="flex justify-between items-center py-2">
               <span className="text-muted-foreground">Theme</span>
