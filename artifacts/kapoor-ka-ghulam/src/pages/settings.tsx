@@ -1,10 +1,17 @@
-import { Info, Settings as SettingsIcon, AlertTriangle, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useClearHistory, useGetSettings, useUpdateSettings, useGetStats, useGetExtensions, getGetSettingsQueryKey, getGetStatsQueryKey, getGetHistoryQueryKey } from "@workspace/api-client-react";
+import { useLocation } from "wouter";
+import { Blocks, Trash2, ChevronRight, Info as InfoIcon, AlertTriangle } from "lucide-react";
+import {
+  useClearHistory,
+  useGetSettings,
+  useUpdateSettings,
+  useGetStats,
+  useGetExtensions,
+  getGetSettingsQueryKey,
+  getGetStatsQueryKey,
+  getGetHistoryQueryKey,
+} from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { useActiveExtension } from "@/hooks/use-active-extension";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,162 +23,220 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
+import { useActiveExtension } from "@/hooks/use-active-extension";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useState } from "react";
+import { Check } from "lucide-react";
+import { Clapperboard } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function Settings() {
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [extSheetOpen, setExtSheetOpen] = useState(false);
+
   const clearHistory = useClearHistory({
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetHistoryQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetStatsQueryKey() });
-      }
-    }
+      },
+    },
   });
-  
+
   const updateSettings = useUpdateSettings({
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
-      }
-    }
+      },
+    },
   });
 
-  const { activeExtId, isLoading: isExtLoading } = useActiveExtension();
+  const { activeExtId, activeExtension, isLoading: isExtLoading } = useActiveExtension();
   const { data: stats } = useGetStats();
   const { data: extensions } = useGetExtensions();
-  const { toast } = useToast();
 
   const handleClearData = async () => {
     await clearHistory.mutateAsync();
-    toast({ title: "Local data cleared" });
+    toast({ title: "History cleared" });
   };
 
-  const handleExtensionChange = async (val: string) => {
-    await updateSettings.mutateAsync({
-      data: {
-        activeExtId: val === "none" ? null : Number(val)
-      }
-    });
-    toast({ title: "Active extension updated" });
+  const handleSelectExt = async (id: number | undefined) => {
+    await updateSettings.mutateAsync({ data: { activeExtId: id ?? undefined } });
+    setExtSheetOpen(false);
+    toast({ title: id ? "Active extension updated" : "Extension cleared" });
   };
 
   return (
-    <div className="p-6 md:p-12 max-w-4xl mx-auto min-h-screen">
-      <div className="mb-12">
-        <h1 className="text-4xl font-serif font-bold">Settings</h1>
-        <p className="text-muted-foreground mt-2 font-mono text-sm">App configuration and data</p>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="sticky top-0 z-20 px-4 py-3 bg-black/80 backdrop-blur-md border-b border-white/5">
+        <h1 className="text-lg font-bold text-white">Settings</h1>
       </div>
 
-      <div className="space-y-8">
-        
-        <Card className="bg-card border-border/50 shadow-none">
-          <CardHeader>
-            <CardTitle className="font-serif flex items-center gap-2">
-              <SettingsIcon className="w-5 h-5 text-primary" /> Preferences
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Active Extension</Label>
-              <Select 
-                value={activeExtId ? activeExtId.toString() : "none"} 
-                onValueChange={handleExtensionChange}
-                disabled={isExtLoading}
-              >
-                <SelectTrigger className="bg-black/40 border-white/10">
-                  <SelectValue placeholder="Select an extension" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {extensions?.map((ext) => (
-                    <SelectItem key={ext.id} value={ext.id.toString()}>
-                      {ext.displayName} v{ext.version}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">This extension will be used for browsing and searching content.</p>
+      <div className="px-4 py-4 space-y-4 pb-8">
+        {/* Stats */}
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: "Watched", value: stats?.historyCount ?? 0 },
+            { label: "Saved", value: stats?.watchlistCount ?? 0 },
+            { label: "Sources", value: stats?.sourcesCount ?? 0 },
+            { label: "Exts", value: stats?.extensionsCount ?? 0 },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-white/5 rounded-xl p-3 text-center border border-white/5">
+              <p className="text-xl font-bold text-white">{value}</p>
+              <p className="text-[10px] text-white/40 uppercase tracking-wide mt-0.5">{label}</p>
             </div>
-          </CardContent>
-        </Card>
+          ))}
+        </div>
 
-        <Card className="bg-card border-border/50 shadow-none">
-          <CardHeader>
-            <CardTitle className="font-serif flex items-center gap-2">
-              <Info className="w-5 h-5 text-primary" /> About & Stats
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
-                <div className="text-2xl font-bold font-mono">{stats?.historyCount || 0}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">History</div>
-              </div>
-              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
-                <div className="text-2xl font-bold font-mono">{stats?.watchlistCount || 0}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">Watchlist</div>
-              </div>
-              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
-                <div className="text-2xl font-bold font-mono">{stats?.sourcesCount || 0}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">Sources</div>
-              </div>
-              <div className="bg-white/5 border border-white/10 rounded-lg p-4 text-center">
-                <div className="text-2xl font-bold font-mono">{stats?.extensionsCount || 0}</div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">Extensions</div>
-              </div>
-            </div>
+        {/* Extensions section */}
+        <div className="bg-[#1c1c1c] rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-white/5">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Provider</p>
+          </div>
 
-            <div className="flex justify-between items-center py-2 border-b border-border/50">
-              <span className="text-muted-foreground">Version</span>
-              <span className="font-mono text-sm">v1.0.0 Director's Cut</span>
+          {/* Active extension */}
+          <button
+            onClick={() => setExtSheetOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-4 border-b border-white/5 hover:bg-white/5 transition-colors"
+            disabled={isExtLoading}
+            data-testid="button-change-extension"
+          >
+            <Clapperboard className="w-5 h-5 text-primary shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-white">Active Extension</p>
+              <p className="text-xs text-white/40 mt-0.5">
+                {activeExtension ? activeExtension.displayName : "None selected"}
+              </p>
             </div>
-            <div className="flex justify-between items-center py-2">
-              <span className="text-muted-foreground">Theme</span>
-              <span className="capitalize font-mono text-sm">Dark (Cinematic)</span>
-            </div>
-          </CardContent>
-        </Card>
+            <ChevronRight className="w-4 h-4 text-white/30 shrink-0" />
+          </button>
 
-        <Card className="bg-red-950/10 border-red-900/20 shadow-none">
-          <CardHeader>
-            <CardTitle className="font-serif flex items-center gap-2 text-destructive">
-              <AlertTriangle className="w-5 h-5" /> Danger Zone
-            </CardTitle>
-            <CardDescription className="text-red-900/60 dark:text-red-200/50">
-              Irreversible actions
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4">
-              <div>
-                <h4 className="font-medium text-white mb-1">Clear Local Data</h4>
-                <p className="text-sm text-muted-foreground">Removes all history and cached data.</p>
-              </div>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive">Clear Data</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="bg-card border-border">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="font-serif">Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will clear all your local watch history and cached data. Watchlist and Providers will remain intact.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel className="border-white/10">Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleClearData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                      Yes, clear data
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+          {/* Marketplace link */}
+          <button
+            onClick={() => setLocation("/marketplace")}
+            className="w-full flex items-center gap-3 px-4 py-4 hover:bg-white/5 transition-colors"
+            data-testid="button-go-marketplace"
+          >
+            <Blocks className="w-5 h-5 text-primary shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-white">Marketplace</p>
+              <p className="text-xs text-white/40 mt-0.5">Install extensions &amp; manage sources</p>
             </div>
-          </CardContent>
-        </Card>
+            <ChevronRight className="w-4 h-4 text-white/30 shrink-0" />
+          </button>
+        </div>
+
+        {/* About */}
+        <div className="bg-[#1c1c1c] rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-white/5">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">About</p>
+          </div>
+          <div className="px-4 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <InfoIcon className="w-5 h-5 text-primary shrink-0" />
+              <p className="text-sm font-medium text-white">Version</p>
+            </div>
+            <p className="text-sm text-white/40 font-mono">v1.0.0</p>
+          </div>
+        </div>
+
+        {/* Danger zone */}
+        <div className="bg-red-950/20 border border-red-900/20 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 border-b border-red-900/20">
+            <p className="text-xs font-semibold text-red-400/60 uppercase tracking-wider">Danger</p>
+          </div>
+          <div className="px-4 py-4 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white">Clear Watch History</p>
+              <p className="text-xs text-white/40 mt-0.5">Removes all viewing records</p>
+            </div>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/40 text-red-400 rounded-lg text-xs font-medium hover:bg-red-900/60 transition-colors"
+                  data-testid="button-clear-history"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-[#1c1c1c] border-white/10 mx-4">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-white">Clear watch history?</AlertDialogTitle>
+                  <AlertDialogDescription className="text-white/50">
+                    This removes all history records. Watchlist and extensions remain intact.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="bg-white/10 border-white/10 text-white hover:bg-white/20">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleClearData} className="bg-red-700 hover:bg-red-600 text-white">
+                    Clear
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
       </div>
+
+      {/* Extension picker sheet */}
+      <Sheet open={extSheetOpen} onOpenChange={setExtSheetOpen}>
+        <SheetContent side="bottom" className="bg-[#1a1a1a] border-t border-white/10 rounded-t-2xl px-0 pb-safe">
+          <SheetHeader className="px-5 pb-4 border-b border-white/10">
+            <SheetTitle className="text-white text-lg font-bold text-left">Active Extension</SheetTitle>
+            <p className="text-white/40 text-sm text-left -mt-1">Choose your content provider</p>
+          </SheetHeader>
+          <div className="max-h-[50vh] overflow-y-auto py-2">
+            <button
+              onClick={() => handleSelectExt(undefined)}
+              className={cn(
+                "w-full flex items-center gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors",
+                !activeExtId ? "text-primary bg-primary/10" : "text-white/50 hover:bg-white/5"
+              )}
+              data-testid="ext-option-none"
+            >
+              <Clapperboard className="w-5 h-5 shrink-0" />
+              <span className="flex-1 text-left font-medium">None</span>
+              {!activeExtId && <Check className="w-5 h-5 text-primary shrink-0" />}
+            </button>
+            {!extensions || extensions.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <p className="text-white/40 text-sm">No extensions installed.</p>
+                <button
+                  onClick={() => { setExtSheetOpen(false); setLocation("/marketplace"); }}
+                  className="mt-3 text-primary text-sm font-medium hover:underline"
+                  data-testid="button-go-marketplace-from-sheet"
+                >
+                  Go to Marketplace
+                </button>
+              </div>
+            ) : (
+              extensions.map((ext) => {
+                const isActive = ext.id === activeExtId;
+                return (
+                  <button
+                    key={ext.id}
+                    onClick={() => handleSelectExt(ext.id)}
+                    className={cn(
+                      "w-full flex items-center gap-4 px-5 py-4 border-b border-white/5 last:border-0 transition-colors",
+                      isActive ? "text-primary bg-primary/10" : "text-white hover:bg-white/5"
+                    )}
+                    data-testid={`ext-option-${ext.id}`}
+                  >
+                    <Clapperboard className="w-5 h-5 shrink-0" />
+                    <span className="flex-1 text-left font-medium">{ext.displayName}</span>
+                    {isActive && <Check className="w-5 h-5 text-primary shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

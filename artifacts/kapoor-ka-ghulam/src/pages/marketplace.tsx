@@ -1,60 +1,56 @@
 import { useState } from "react";
-import { useGetSources, useAddSource, useRemoveSource, useFetchManifest, useGetExtensions, useInstallExtension, useUninstallExtension, getGetSourcesQueryKey, getGetExtensionsQueryKey } from "@workspace/api-client-react";
-import { Blocks, Loader2, Plus, Trash2, Download, Check, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useLocation } from "wouter";
+import {
+  useGetSources,
+  useAddSource,
+  useRemoveSource,
+  useFetchManifest,
+  useGetExtensions,
+  useInstallExtension,
+  useUninstallExtension,
+  getGetSourcesQueryKey,
+  getGetExtensionsQueryKey,
+  getFetchManifestQueryKey,
+  type ManifestEntry,
+} from "@workspace/api-client-react";
+import { Blocks, Loader2, Plus, Trash2, Download, Check, AlertTriangle, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function Marketplace() {
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const { data: sources, isLoading: isSourcesLoading } = useGetSources();
-  const { data: extensions, isLoading: isExtensionsLoading } = useGetExtensions();
-  
+  const { data: extensions } = useGetExtensions();
+
   const addSource = useAddSource({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetSourcesQueryKey() });
-      }
-    }
+    mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSourcesQueryKey() }) },
   });
   const removeSource = useRemoveSource({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetSourcesQueryKey() });
-      }
-    }
+    mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetSourcesQueryKey() }) },
   });
   const installExtension = useInstallExtension({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetExtensionsQueryKey() });
-      }
-    }
+    mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetExtensionsQueryKey() }) },
   });
   const uninstallExtension = useUninstallExtension({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetExtensionsQueryKey() });
-      }
-    }
+    mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetExtensionsQueryKey() }) },
   });
 
-  const { toast } = useToast();
   const [sourceInput, setSourceInput] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const handleAddSource = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sourceInput) return;
-
+    if (!sourceInput.trim()) return;
     try {
-      await addSource.mutateAsync({ data: { input: sourceInput } });
+      await addSource.mutateAsync({ data: { input: sourceInput.trim() } });
       setSourceInput("");
+      setShowAddForm(false);
       toast({ title: "Source added successfully" });
-    } catch (err) {
+    } catch {
       toast({ title: "Failed to add source", variant: "destructive" });
     }
   };
@@ -63,93 +59,114 @@ export default function Marketplace() {
     try {
       await removeSource.mutateAsync({ id });
       toast({ title: "Source removed" });
-    } catch (err) {
+    } catch {
       toast({ title: "Failed to remove source", variant: "destructive" });
     }
   };
 
   return (
-    <div className="p-6 md:p-12 max-w-7xl mx-auto min-h-screen">
-      <div className="mb-12">
-        <h1 className="text-4xl font-serif font-bold">Marketplace</h1>
-        <p className="text-muted-foreground mt-2 font-mono text-sm">Discover and manage content extensions</p>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="sticky top-0 z-20 px-4 py-3 bg-black/80 backdrop-blur-md border-b border-white/5 flex items-center gap-3">
+        <button
+          onClick={() => setLocation("/settings")}
+          className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+          data-testid="button-back"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h1 className="text-lg font-bold text-white flex-1">Marketplace</h1>
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
+          data-testid="button-toggle-add-form"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_400px] gap-12 items-start">
-        
-        {/* Source Contents */}
-        <div className="space-y-8">
-          {isSourcesLoading && (
-            <div className="flex justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          )}
+      <div className="px-4 py-4 pb-8 space-y-4">
+        {/* Add source form */}
+        {showAddForm && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-[#1c1c1c] rounded-xl p-4 border border-white/5"
+          >
+            <p className="text-sm font-semibold text-white mb-1">Add Provider Source</p>
+            <p className="text-xs text-white/40 mb-3">
+              Enter a GitHub repo URL or "author/repo" shorthand with a Vega-compatible manifest.json
+            </p>
+            <form onSubmit={handleAddSource} className="flex gap-2">
+              <input
+                value={sourceInput}
+                onChange={(e) => setSourceInput(e.target.value)}
+                placeholder="https://github.com/user/repo"
+                className="flex-1 bg-white/10 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/60 font-mono"
+                required
+                data-testid="input-source-url"
+              />
+              <button
+                type="submit"
+                disabled={addSource.isPending || !sourceInput.trim()}
+                className="px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center gap-2"
+                data-testid="button-add-source"
+              >
+                {addSource.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
+              </button>
+            </form>
+          </motion.div>
+        )}
 
-          {!isSourcesLoading && sources?.map((source) => (
-            <SourceSection 
-              key={source.id} 
-              source={source} 
+        {/* Sources loading */}
+        {isSourcesLoading && (
+          <div className="flex justify-center py-20">
+            <Loader2 className="w-7 h-7 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {/* Empty sources */}
+        {!isSourcesLoading && (!sources || sources.length === 0) && (
+          <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+            <Blocks className="w-14 h-14 text-white/20 mb-4" />
+            <p className="text-white font-semibold text-base mb-1">No sources added</p>
+            <p className="text-white/40 text-sm mb-4">
+              Add a GitHub provider source to discover and install extensions.
+            </p>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="px-5 py-2.5 bg-primary rounded-lg text-white text-sm font-medium flex items-center gap-2"
+              data-testid="button-add-first-source"
+            >
+              <Plus className="w-4 h-4" />
+              Add Source
+            </button>
+          </div>
+        )}
+
+        {/* Source sections */}
+        {!isSourcesLoading &&
+          sources?.map((source) => (
+            <SourceSection
+              key={source.id}
+              source={source}
               extensions={extensions || []}
               onRemove={() => handleRemoveSource(source.id)}
-              onInstall={(entry) => installExtension.mutateAsync({
-                data: {
-                  sourceId: source.id,
-                  value: entry.value,
-                  displayName: entry.displayName,
-                  type: entry.type,
-                  icon: entry.icon,
-                  version: entry.version,
-                }
-              })}
-              onUninstall={(id) => uninstallExtension.mutateAsync({ id })}
+              onInstall={(entry: ManifestEntry) =>
+                installExtension.mutateAsync({
+                  data: {
+                    sourceId: source.id,
+                    value: entry.value,
+                    displayName: entry.displayName,
+                    type: entry.type,
+                    icon: entry.icon ?? undefined,
+                    version: entry.version,
+                  },
+                })
+              }
+              onUninstall={(id: number) => uninstallExtension.mutateAsync({ id })}
             />
           ))}
-
-          {!isSourcesLoading && (!sources || sources.length === 0) && (
-            <div className="text-center py-24 bg-white/5 rounded-2xl border border-white/10 border-dashed">
-              <Blocks className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-              <h3 className="text-xl font-serif mb-2">No Sources Added</h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Add a provider source URL on the right to discover installable extensions.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Add Form */}
-        <div className="sticky top-24">
-          <Card className="bg-card border-border shadow-xl backdrop-blur-md">
-            <CardHeader>
-              <CardTitle className="font-serif">Add Source</CardTitle>
-              <CardDescription>Enter a GitHub repository URL or author name (e.g. "author/repo" or full URL) containing Vega-compatible extensions.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleAddSource} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="sourceInput">Source URL or Author</Label>
-                  <Input 
-                    id="sourceInput" 
-                    value={sourceInput} 
-                    onChange={(e) => setSourceInput(e.target.value)} 
-                    placeholder="https://github.com/user/repo"
-                    className="bg-black/40 border-white/10 focus-visible:ring-primary font-mono text-sm"
-                    required
-                  />
-                </div>
-
-                <Button 
-                  type="submit" 
-                  className="w-full mt-2" 
-                  disabled={addSource.isPending || !sourceInput}
-                >
-                  {addSource.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-                  Add Source
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-
       </div>
     </div>
   );
@@ -158,94 +175,111 @@ export default function Marketplace() {
 function SourceSection({ source, extensions, onRemove, onInstall, onUninstall }: any) {
   const { data: manifest, isLoading, isError } = useFetchManifest(
     { sourceId: source.id },
-    { query: { enabled: !!source.id } }
+    { query: { enabled: !!source.id, queryKey: getFetchManifestQueryKey({ sourceId: source.id }) } }
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between border-b border-border/50 pb-4">
-        <div>
-          <h2 className="text-2xl font-serif font-semibold">{source.name}</h2>
-          <a href={source.url} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground hover:underline font-mono truncate max-w-xs block">
+    <div className="bg-[#1c1c1c] rounded-xl overflow-hidden border border-white/5">
+      {/* Source header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-white truncate">{source.name}</p>
+          <a
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] text-white/30 hover:text-white/50 font-mono truncate block"
+          >
             {source.url}
           </a>
         </div>
-        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={onRemove}>
-          <Trash2 className="w-5 h-5" />
-        </Button>
+        <button
+          onClick={onRemove}
+          className="p-1.5 text-white/30 hover:text-red-400 transition-colors"
+          data-testid={`button-remove-source-${source.id}`}
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
 
+      {/* Manifest loading */}
       {isLoading && (
-        <div className="flex justify-center py-10">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="flex justify-center py-8">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
       )}
 
+      {/* Manifest error */}
       {isError && (
-        <div className="p-4 bg-destructive/10 text-destructive rounded-lg flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 px-4 py-4 text-red-400/80">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium">Failed to load manifest</p>
-            <p className="text-sm opacity-80">Check if the source URL is valid and accessible.</p>
+            <p className="text-sm font-medium">Failed to load manifest</p>
+            <p className="text-xs text-white/30 mt-0.5">Check if the source URL is valid.</p>
           </div>
         </div>
       )}
 
+      {/* Extension list */}
       {!isLoading && manifest && manifest.length > 0 && (
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div>
           {manifest.map((entry: any, i: number) => {
-            const installedExt = extensions.find((ext: any) => ext.value === entry.value);
+            const installedExt = extensions.find((e: any) => e.value === entry.value);
             const isInstalled = !!installedExt;
 
             return (
               <motion.div
                 key={entry.value}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: i * 0.04 }}
+                className="flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0"
+                data-testid={`ext-entry-${i}`}
               >
-                <Card className="bg-card/50 border-border/50 hover:border-primary/30 transition-colors h-full flex flex-col">
-                  <CardHeader className="p-4 pb-2 flex-row gap-4 items-start space-y-0">
-                    <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {entry.icon ? (
-                        <img src={entry.icon} alt={entry.displayName} className="w-full h-full object-cover" />
-                      ) : (
-                        <Blocks className="w-6 h-6 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <CardTitle className="text-lg font-serif mb-1 truncate" title={entry.displayName}>{entry.displayName}</CardTitle>
-                      <CardDescription className="text-xs uppercase tracking-wider font-mono flex gap-2">
-                        <span>{entry.type}</span>
-                        <span>v{entry.version}</span>
-                      </CardDescription>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 pt-2 flex-1 flex flex-col justify-end">
-                    {isInstalled ? (
-                      <Button 
-                        variant="secondary" 
-                        className="w-full text-foreground/80 hover:text-destructive hover:bg-destructive/20"
-                        onClick={() => onUninstall(installedExt.id)}
-                      >
-                        <Check className="w-4 h-4 mr-2" /> Installed
-                      </Button>
-                    ) : (
-                      <Button 
-                        variant="default" 
-                        className="w-full"
-                        onClick={() => onInstall(entry)}
-                        disabled={entry.disabled}
-                      >
-                        <Download className="w-4 h-4 mr-2" /> Install
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
+                {/* Icon */}
+                <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0 overflow-hidden">
+                  {entry.icon ? (
+                    <img src={entry.icon} alt={entry.displayName} className="w-full h-full object-cover" />
+                  ) : (
+                    <Blocks className="w-5 h-5 text-white/30" />
+                  )}
+                </div>
+
+                {/* Name + type */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{entry.displayName}</p>
+                  <p className="text-[11px] text-white/30 font-mono">{entry.type} · v{entry.version}</p>
+                </div>
+
+                {/* Install/Uninstall */}
+                {isInstalled ? (
+                  <button
+                    onClick={() => onUninstall(installedExt.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 text-white/60 rounded-lg text-xs font-medium hover:bg-red-900/30 hover:text-red-400 transition-colors"
+                    data-testid={`button-uninstall-${i}`}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    Installed
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onInstall(entry)}
+                    disabled={entry.disabled}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/20 text-primary rounded-lg text-xs font-medium hover:bg-primary/30 transition-colors disabled:opacity-40"
+                    data-testid={`button-install-${i}`}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Install
+                  </button>
+                )}
               </motion.div>
             );
           })}
         </div>
+      )}
+
+      {!isLoading && manifest && manifest.length === 0 && (
+        <p className="text-white/30 text-sm px-4 py-4">No extensions found in this source.</p>
       )}
     </div>
   );

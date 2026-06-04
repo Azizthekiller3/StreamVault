@@ -22,9 +22,9 @@ export default function Browse() {
   );
 
   useEffect(() => {
-    if (data?.posts) {
+    if (data) {
       setAllPosts(prev => {
-        const newPosts = data.posts.filter((p: any) => !prev.some(existing => existing.link === p.link));
+        const newPosts = data.filter((p: any) => !prev.some((existing: any) => existing.link === p.link));
         return [...prev, ...newPosts];
       });
     }
@@ -68,7 +68,7 @@ export default function Browse() {
         </div>
       )}
 
-      {data?.hasNextPage && (
+      {false && (
         <div className="flex justify-center py-8">
           <Button 
             variant="outline" 
