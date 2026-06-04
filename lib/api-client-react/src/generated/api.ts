@@ -45,6 +45,7 @@ import type {
   SearchContentParams,
   SearchPostsParams,
   SearchResults,
+  SetBaseUrlBody,
   Stream,
   SuccessResponse,
   UserStats,
@@ -729,6 +730,78 @@ export const useUninstallExtension = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUninstallExtensionMutationOptions(options));
+    }
+
+export const getSetExtensionBaseUrlUrl = (id: number,) => {
+
+
+
+
+  return `/api/extensions/${id}/baseUrl`
+}
+
+/**
+ * @summary Set the base URL for an installed extension
+ */
+export const setExtensionBaseUrl = async (id: number,
+    setBaseUrlBody: SetBaseUrlBody, options?: RequestInit): Promise<SuccessResponse> => {
+
+  return customFetch<SuccessResponse>(getSetExtensionBaseUrlUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setBaseUrlBody,)
+  }
+);}
+
+
+
+
+export const getSetExtensionBaseUrlMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setExtensionBaseUrl>>, TError,{id: number;data: BodyType<SetBaseUrlBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setExtensionBaseUrl>>, TError,{id: number;data: BodyType<SetBaseUrlBody>}, TContext> => {
+
+const mutationKey = ['setExtensionBaseUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setExtensionBaseUrl>>, {id: number;data: BodyType<SetBaseUrlBody>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setExtensionBaseUrl(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetExtensionBaseUrlMutationResult = NonNullable<Awaited<ReturnType<typeof setExtensionBaseUrl>>>
+    export type SetExtensionBaseUrlMutationBody = BodyType<SetBaseUrlBody>
+    export type SetExtensionBaseUrlMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Set the base URL for an installed extension
+ */
+export const useSetExtensionBaseUrl = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setExtensionBaseUrl>>, TError,{id: number;data: BodyType<SetBaseUrlBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setExtensionBaseUrl>>,
+        TError,
+        {id: number;data: BodyType<SetBaseUrlBody>},
+        TContext
+      > => {
+      return useMutation(getSetExtensionBaseUrlMutationOptions(options));
     }
 
 export const getGetCatalogUrl = (params: GetCatalogParams,) => {

@@ -2,3 +2,4 @@
 - [Extension system architecture](extension-system.md) — how Vega-compatible provider extensions work: sources → manifest → install JS modules → execute via vm sandbox
 - [Vega UI conventions](vega-ui.md) — bottom tab bar (4 tabs), provider selector as bottom sheet from header, info page: synopsis card + quality dropdown + episode rows + server bottom sheet
 - [React 19 useRef no-arg](react19-useref.md) — useRef<T>() with no argument fails in React 19; always pass explicit initial value e.g. useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+- [Vega Extension VM context](vega-extension-system.md) — sandbox needs fetch+cheerio+getBaseUrl as globals; provider baseUrl stored in DB per extension, configured in marketplace UI

@@ -93,6 +93,7 @@ export const GetExtensionsResponseItem = zod.object({
   "icon": zod.string().nullish(),
   "version": zod.string(),
   "enabled": zod.boolean(),
+  "baseUrl": zod.string().nullish(),
   "installedAt": zod.string()
 })
 export const GetExtensionsResponse = zod.array(GetExtensionsResponseItem)
@@ -119,6 +120,23 @@ export const UninstallExtensionParams = zod.object({
 })
 
 export const UninstallExtensionResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional()
+})
+
+
+/**
+ * @summary Set the base URL for an installed extension
+ */
+export const SetExtensionBaseUrlParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SetExtensionBaseUrlBody = zod.object({
+  "baseUrl": zod.string()
+})
+
+export const SetExtensionBaseUrlResponse = zod.object({
   "success": zod.boolean(),
   "message": zod.string().optional()
 })

@@ -47,6 +47,8 @@ export interface Extension {
   icon?: string | null;
   version: string;
   enabled: boolean;
+  /** @nullable */
+  baseUrl?: string | null;
   installedAt: string;
 }
 
@@ -57,6 +59,10 @@ export interface InstallExtensionBody {
   type: string;
   icon?: string;
   version: string;
+}
+
+export interface SetBaseUrlBody {
+  baseUrl: string;
 }
 
 export interface CatalogItem {

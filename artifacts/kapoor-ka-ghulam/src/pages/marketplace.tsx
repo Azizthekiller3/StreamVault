@@ -8,14 +8,16 @@ import {
   useGetExtensions,
   useInstallExtension,
   useUninstallExtension,
+  useSetExtensionBaseUrl,
   getGetSourcesQueryKey,
   getGetExtensionsQueryKey,
   getFetchManifestQueryKey,
   type ManifestEntry,
+  type Extension,
 } from "@workspace/api-client-react";
-import { Blocks, Loader2, Plus, Trash2, Download, Check, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Blocks, Loader2, Plus, Trash2, Download, Check, AlertTriangle, ArrowLeft, Link, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function Marketplace() {
@@ -85,37 +87,52 @@ export default function Marketplace() {
         </button>
       </div>
 
-      <div className="px-4 py-4 pb-8 space-y-4">
+      <div className="px-4 py-4 pb-24 space-y-4">
         {/* Add source form */}
-        {showAddForm && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-[#1c1c1c] rounded-xl p-4 border border-white/5"
-          >
-            <p className="text-sm font-semibold text-white mb-1">Add Provider Source</p>
-            <p className="text-xs text-white/40 mb-3">
-              Enter a GitHub repo URL or "author/repo" shorthand with a Vega-compatible manifest.json
-            </p>
-            <form onSubmit={handleAddSource} className="flex gap-2">
-              <input
-                value={sourceInput}
-                onChange={(e) => setSourceInput(e.target.value)}
-                placeholder="https://github.com/user/repo"
-                className="flex-1 bg-white/10 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/60 font-mono"
-                required
-                data-testid="input-source-url"
-              />
-              <button
-                type="submit"
-                disabled={addSource.isPending || !sourceInput.trim()}
-                className="px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center gap-2"
-                data-testid="button-add-source"
-              >
-                {addSource.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
-              </button>
-            </form>
-          </motion.div>
+        <AnimatePresence>
+          {showAddForm && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-[#1c1c1c] rounded-xl p-4 border border-white/5"
+            >
+              <p className="text-sm font-semibold text-white mb-1">Add Provider Source</p>
+              <p className="text-xs text-white/40 mb-3">
+                Enter a GitHub repo URL, "author/repo" shorthand, or just "author" (e.g. <span className="font-mono text-white/60">vega-org</span>)
+              </p>
+              <form onSubmit={handleAddSource} className="flex gap-2">
+                <input
+                  value={sourceInput}
+                  onChange={(e) => setSourceInput(e.target.value)}
+                  placeholder="vega-org"
+                  className="flex-1 bg-white/10 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/60 font-mono"
+                  required
+                  data-testid="input-source-url"
+                />
+                <button
+                  type="submit"
+                  disabled={addSource.isPending || !sourceInput.trim()}
+                  className="px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center gap-2"
+                  data-testid="button-add-source"
+                >
+                  {addSource.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
+                </button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Installed extensions section */}
+        {extensions && extensions.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-2">Installed</p>
+            <div className="bg-[#1c1c1c] rounded-xl overflow-hidden border border-white/5">
+              {extensions.map((ext, i) => (
+                <InstalledExtCard key={ext.id} ext={ext} isLast={i === extensions.length - 1} />
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Sources loading */}
@@ -168,6 +185,92 @@ export default function Marketplace() {
             />
           ))}
       </div>
+    </div>
+  );
+}
+
+function InstalledExtCard({ ext, isLast }: { ext: Extension; isLast: boolean }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [urlInput, setUrlInput] = useState(ext.baseUrl ?? "");
+
+  const setBaseUrl = useSetExtensionBaseUrl({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetExtensionsQueryKey() });
+        setEditingUrl(false);
+        toast({ title: "Base URL saved" });
+      },
+      onError: () => toast({ title: "Failed to save URL", variant: "destructive" }),
+    },
+  });
+
+  const handleSaveUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!urlInput.trim()) return;
+    await setBaseUrl.mutateAsync({ id: ext.id, data: { baseUrl: urlInput.trim() } });
+  };
+
+  return (
+    <div className={`px-4 py-3 ${!isLast ? "border-b border-white/5" : ""}`}>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0 overflow-hidden">
+          {ext.icon ? (
+            <img src={ext.icon} alt={ext.displayName} className="w-full h-full object-cover" />
+          ) : (
+            <Blocks className="w-5 h-5 text-white/30" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-white truncate">{ext.displayName}</p>
+          <p className="text-[11px] text-white/30 font-mono">{ext.type} · v{ext.version}</p>
+        </div>
+        <button
+          onClick={() => { setEditingUrl(!editingUrl); setUrlInput(ext.baseUrl ?? ""); }}
+          className="p-1.5 text-white/30 hover:text-primary transition-colors"
+          title="Set provider base URL"
+        >
+          <Link className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Base URL editor */}
+      <AnimatePresence>
+        {editingUrl && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <form onSubmit={handleSaveUrl} className="mt-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs text-white/40">
+                <Link className="w-3 h-3" />
+                <span>Provider site URL (needed for posts/search)</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  placeholder="https://vegamovies.link"
+                  className="flex-1 bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50 font-mono"
+                />
+                <button
+                  type="submit"
+                  disabled={setBaseUrl.isPending || !urlInput.trim()}
+                  className="px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium disabled:opacity-50"
+                >
+                  {setBaseUrl.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+                </button>
+              </div>
+              {ext.baseUrl && (
+                <p className="text-[11px] text-white/30 font-mono truncate">Current: {ext.baseUrl}</p>
+              )}
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

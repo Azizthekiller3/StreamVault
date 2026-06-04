@@ -6,6 +6,8 @@ import {
   FetchManifestQueryParams,
   InstallExtensionBody,
   UninstallExtensionParams,
+  SetExtensionBaseUrlParams,
+  SetExtensionBaseUrlBody,
   GetCatalogQueryParams,
   GetPostsQueryParams,
   SearchPostsQueryParams,
@@ -76,6 +78,7 @@ router.get("/extensions", async (req, res) => {
       icon: e.icon,
       version: e.version,
       enabled: e.enabled,
+      baseUrl: e.baseUrl,
       installedAt: e.installedAt.toISOString(),
     })));
   } catch (err) {
@@ -158,11 +161,35 @@ router.post("/extensions/install", async (req, res) => {
       icon: ext.icon,
       version: ext.version,
       enabled: ext.enabled,
+      baseUrl: ext.baseUrl,
       installedAt: ext.installedAt.toISOString(),
     });
   } catch (err) {
     req.log.error({ err }, "Failed to install extension");
     res.status(500).json({ error: "Failed to install extension" });
+  }
+});
+
+// ── Set Base URL ──────────────────────────────────────────────────
+router.patch("/extensions/:id/baseUrl", async (req, res) => {
+  try {
+    const paramsParsed = SetExtensionBaseUrlParams.safeParse({ id: Number(req.params.id) });
+    if (!paramsParsed.success) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const bodyParsed = SetExtensionBaseUrlBody.safeParse(req.body);
+    if (!bodyParsed.success) {
+      res.status(400).json({ error: "Invalid request body" });
+      return;
+    }
+    await db.update(installedExtensionsTable)
+      .set({ baseUrl: bodyParsed.data.baseUrl })
+      .where(eq(installedExtensionsTable.id, paramsParsed.data.id));
+    res.json({ success: true, message: "Base URL updated" });
+  } catch (err) {
+    req.log.error({ err }, "Failed to set base URL");
+    res.status(500).json({ error: "Failed to set base URL" });
   }
 });
 
@@ -200,7 +227,7 @@ router.get("/catalog", async (req, res) => {
     const ext = await loadExt(parsed.data.extId);
     if (!ext) { res.status(404).json({ error: "Extension not found" }); return; }
     if (!ext.catalogModule) { res.json({ catalog: [], genres: [] }); return; }
-    const result = await execCatalog(ext.catalogModule, ext.sourceUrl);
+    const result = await execCatalog(ext.catalogModule, ext.sourceUrl, ext.baseUrl);
     res.json(result);
   } catch (err) {
     req.log.error({ err }, "Failed to get catalog");
@@ -219,7 +246,7 @@ router.get("/posts", async (req, res) => {
     const ext = await loadExt(parsed.data.extId);
     if (!ext) { res.status(404).json({ error: "Extension not found" }); return; }
     if (!ext.postsModule) { res.json([]); return; }
-    const posts = await execPosts(ext.postsModule, ext.sourceUrl, {
+    const posts = await execPosts(ext.postsModule, ext.sourceUrl, ext.baseUrl, {
       filter: parsed.data.filter,
       page: parsed.data.page ?? 1,
       providerValue: ext.value,
@@ -242,7 +269,7 @@ router.get("/posts/search", async (req, res) => {
     const ext = await loadExt(parsed.data.extId);
     if (!ext) { res.status(404).json({ error: "Extension not found" }); return; }
     if (!ext.postsModule) { res.json([]); return; }
-    const posts = await execSearchPosts(ext.postsModule, ext.sourceUrl, {
+    const posts = await execSearchPosts(ext.postsModule, ext.sourceUrl, ext.baseUrl, {
       query: parsed.data.q,
       page: parsed.data.page ?? 1,
       providerValue: ext.value,
@@ -268,7 +295,7 @@ router.get("/meta", async (req, res) => {
       res.status(404).json({ error: "Extension has no meta module" });
       return;
     }
-    const meta = await execMeta(ext.metaModule, ext.sourceUrl, {
+    const meta = await execMeta(ext.metaModule, ext.sourceUrl, ext.baseUrl, {
       link: parsed.data.link,
       provider: ext.value,
     });
@@ -290,7 +317,7 @@ router.get("/streams", async (req, res) => {
     const ext = await loadExt(parsed.data.extId);
     if (!ext) { res.status(404).json({ error: "Extension not found" }); return; }
     if (!ext.streamModule) { res.json([]); return; }
-    const streams = await execStream(ext.streamModule, ext.sourceUrl, {
+    const streams = await execStream(ext.streamModule, ext.sourceUrl, ext.baseUrl, {
       link: parsed.data.link,
       type: parsed.data.type ?? undefined,
     });
@@ -312,7 +339,7 @@ router.get("/episodes", async (req, res) => {
     const ext = await loadExt(parsed.data.extId);
     if (!ext) { res.status(404).json({ error: "Extension not found" }); return; }
     if (!ext.episodesModule) { res.json([]); return; }
-    const episodes = await execEpisodes(ext.episodesModule, ext.sourceUrl, {
+    const episodes = await execEpisodes(ext.episodesModule, ext.sourceUrl, ext.baseUrl, {
       url: parsed.data.url,
     });
     res.json(episodes);

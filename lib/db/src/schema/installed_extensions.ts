@@ -12,6 +12,7 @@ export const installedExtensionsTable = pgTable("installed_extensions", {
   icon: text("icon"),
   version: text("version").notNull().default("0.0.1"),
   enabled: boolean("enabled").default(true).notNull(),
+  baseUrl: text("base_url"),
   catalogModule: text("catalog_module"),
   postsModule: text("posts_module"),
   metaModule: text("meta_module"),
