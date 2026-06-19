@@ -13,6 +13,7 @@ import Marketplace from "@/pages/marketplace";
 import Settings from "@/pages/settings";
 import Watch from "@/pages/watch";
 import Browse from "@/pages/browse";
+import TelegramInfo from "@/pages/telegram-info";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +37,7 @@ function App() {
                   <Route path="/" component={Home} />
                   <Route path="/search" component={Search} />
                   <Route path="/info" component={Info} />
+                  <Route path="/telegram-info" component={TelegramInfo} />
                   <Route path="/browse" component={Browse} />
                   <Route path="/watchlist" component={Watchlist} />
                   <Route path="/history" component={History} />

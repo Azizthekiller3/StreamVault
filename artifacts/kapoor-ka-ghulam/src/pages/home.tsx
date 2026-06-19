@@ -1,13 +1,36 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Search as SearchIcon, ChevronRight, Play } from "lucide-react";
+import { Search as SearchIcon, Play } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 import { useGetHistory, useGetWatchlist, useGetCatalog, useGetPosts, getGetCatalogQueryKey, getGetPostsQueryKey } from "@workspace/api-client-react";
 import { useActiveExtension } from "@/hooks/use-active-extension";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { ProviderSelector } from "@/components/provider-selector";
+
+const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+
+interface TelegramMovie {
+  id: string;
+  title: string;
+  poster: string;
+  audio: string;
+  qualities: { quality: string; url: string }[];
+}
+
+function useTelegramMovies() {
+  return useQuery<{ movies: TelegramMovie[]; hasMore: boolean }>({
+    queryKey: ["telegram-movies"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/telegram/movies`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 function CatalogRow({ extId, filter, title }: { extId: number; filter: string; title: string }) {
   const [, setLocation] = useLocation();
@@ -66,6 +89,7 @@ export default function Home() {
   const { data: history } = useGetHistory();
   const { data: watchlist } = useGetWatchlist();
   const { activeExtId, isLoading: isExtLoading } = useActiveExtension();
+  const { data: telegramData, isLoading: isTelegramLoading } = useTelegramMovies();
 
   const { data: catalogResponse, isLoading: isCatalogLoading } = useGetCatalog(
     { extId: activeExtId! },
@@ -84,7 +108,7 @@ export default function Home() {
     <div className="bg-background min-h-screen pb-4">
       {/* Fixed top bar */}
       <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-md border-b border-white/5">
-        <h1 className="text-lg font-bold text-white tracking-tight">Kapoor Ka Ghulam</h1>
+        <h1 className="text-lg font-bold text-white tracking-tight">FlixNest</h1>
         <ProviderSelector />
       </div>
 
@@ -147,6 +171,49 @@ export default function Home() {
           </Link>
         </div>
       )}
+
+      {/* FlixNest Channel Movies */}
+      <div className="mt-4 space-y-5">
+        <section>
+          <div className="flex items-center justify-between mb-3 px-4">
+            <h2 className="text-base font-bold text-primary uppercase tracking-wide">🎬 Latest Movies</h2>
+          </div>
+          <div className="flex gap-2.5 overflow-x-auto pb-3 pl-4 pr-4 scrollbar-hide snap-x">
+            {isTelegramLoading
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="flex-none w-[110px] aspect-[2/3] rounded-md bg-white/10" />
+                ))
+              : telegramData?.movies?.slice(0, 20).map((movie, i) => (
+                  <motion.div
+                    key={movie.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="flex-none w-[110px] snap-start cursor-pointer"
+                    onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
+                  >
+                    <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-white/5">
+                      {movie.poster ? (
+                        <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-black p-2">
+                          <p className="text-white text-[10px] text-center leading-tight">{movie.title}</p>
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 px-1.5 pb-1 pt-4 bg-gradient-to-t from-black/80 to-transparent">
+                        <div className="flex gap-1 flex-wrap">
+                          {movie.qualities.map((q) => (
+                            <span key={q.quality} className="text-[9px] bg-primary/80 text-white px-1 rounded font-bold">{q.quality}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-white/70 mt-1 line-clamp-1 leading-tight">{movie.title}</p>
+                  </motion.div>
+                ))}
+          </div>
+        </section>
+      </div>
 
       {/* Catalog rows */}
       <div className="mt-2 space-y-5">

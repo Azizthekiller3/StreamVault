@@ -7,6 +7,7 @@ import statsRouter from "./stats";
 import sourcesRouter from "./sources";
 import extensionsRouter from "./extensions";
 import settingsRouter from "./settingsRoute";
+import telegramRouter from "./telegram";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(statsRouter);
 router.use(sourcesRouter);
 router.use(extensionsRouter);
 router.use(settingsRouter);
+router.use(telegramRouter);
 
 export default router;
