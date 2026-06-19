@@ -7,6 +7,7 @@ import {
   getFileUrl,
   backfillFromScraper,
 } from "../services/telegramService.js";
+import { enrichFromTmdb } from "../services/tmdbService.js";
 
 const router = Router();
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -126,6 +127,22 @@ router.post("/telegram/register-webhook", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to register webhook");
     res.status(500).json({ error: "Failed to register webhook" });
+  }
+});
+
+// GET /api/tmdb/enrich?title=...
+router.get("/tmdb/enrich", async (req, res) => {
+  const title = req.query["title"] as string | undefined;
+  if (!title?.trim()) {
+    res.status(400).json({ error: "title query param required" });
+    return;
+  }
+  try {
+    const data = await enrichFromTmdb(title.trim());
+    res.json(data);
+  } catch (err) {
+    req.log.error({ err }, "TMDB enrich failed");
+    res.status(500).json({ error: "TMDB lookup failed" });
   }
 });
 
