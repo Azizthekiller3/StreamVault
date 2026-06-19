@@ -10,7 +10,7 @@ import { useActiveExtension } from "@/hooks/use-active-extension";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { ProviderSelector } from "@/components/provider-selector";
 
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+import { API_BASE } from "@/lib/api-base";
 
 interface TelegramMovie {
   id: string;
@@ -24,7 +24,7 @@ function useTelegramMovies() {
   return useQuery<{ movies: TelegramMovie[]; hasMore: boolean }>({
     queryKey: ["telegram-movies"],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/telegram/movies`);
+      const res = await fetch(`${API_BASE}/api/telegram/movies`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },

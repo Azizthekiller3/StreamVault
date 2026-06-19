@@ -21,10 +21,10 @@ interface TelegramMovie {
   messageId: number;
 }
 
-const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+import { API_BASE } from "@/lib/api-base";
 
 async function fetchMovie(id: string): Promise<TelegramMovie> {
-  const res = await fetch(`${BASE}/api/telegram/movies/${id}`);
+  const res = await fetch(`${API_BASE}/api/telegram/movies/${id}`);
   if (!res.ok) throw new Error("Failed to load movie");
   return res.json();
 }

@@ -1,0 +1,8 @@
+{
+  "buildCommand": "pnpm install && pnpm --filter @workspace/kapoor-ka-ghulam run build",
+  "outputDirectory": "artifacts/kapoor-ka-ghulam/dist/public",
+  "installCommand": "pnpm install",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
