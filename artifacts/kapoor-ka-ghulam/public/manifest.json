@@ -1,0 +1,19 @@
+{
+  "name": "FlixNest",
+  "short_name": "FlixNest",
+  "description": "Stream and download movies from your personal channel",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["entertainment"]
+}
