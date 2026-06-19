@@ -84,6 +84,7 @@ function CatalogRow({ extId, filter, title }: { extId: number; filter: string; t
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [telegramSearch, setTelegramSearch] = useState("");
   const [, setLocation] = useLocation();
 
   const { data: history } = useGetHistory();
@@ -173,47 +174,122 @@ export default function Home() {
       )}
 
       {/* FlixNest Channel Movies */}
-      <div className="mt-4 space-y-5">
-        <section>
-          <div className="flex items-center justify-between mb-3 px-4">
-            <h2 className="text-base font-bold text-primary uppercase tracking-wide">🎬 Latest Movies</h2>
-          </div>
-          <div className="flex gap-2.5 overflow-x-auto pb-3 pl-4 pr-4 scrollbar-hide snap-x">
-            {isTelegramLoading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="flex-none w-[110px] aspect-[2/3] rounded-md bg-white/10" />
-                ))
-              : telegramData?.movies?.slice(0, 20).map((movie, i) => (
-                  <motion.div
-                    key={movie.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: i * 0.03 }}
-                    className="flex-none w-[110px] snap-start cursor-pointer"
-                    onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
-                  >
-                    <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-white/5">
-                      {movie.poster ? (
-                        <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-black p-2">
-                          <p className="text-white text-[10px] text-center leading-tight">{movie.title}</p>
-                        </div>
-                      )}
-                      <div className="absolute bottom-0 left-0 right-0 px-1.5 pb-1 pt-4 bg-gradient-to-t from-black/80 to-transparent">
-                        <div className="flex gap-1 flex-wrap">
-                          {movie.qualities.map((q) => (
-                            <span key={q.quality} className="text-[9px] bg-primary/80 text-white px-1 rounded font-bold">{q.quality}</span>
-                          ))}
+      {(() => {
+        const filtered = telegramSearch.trim()
+          ? (telegramData?.movies ?? []).filter((m) =>
+              m.title.toLowerCase().includes(telegramSearch.toLowerCase())
+            )
+          : telegramData?.movies ?? [];
+
+        return (
+          <div className="mt-4 space-y-2">
+            <section>
+              {/* Section header + inline search */}
+              <div className="flex items-center gap-2 mb-3 px-4">
+                <h2 className="text-base font-bold text-primary uppercase tracking-wide shrink-0">🎬 Latest Movies</h2>
+                <div className="relative flex-1">
+                  <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40 w-3.5 h-3.5" />
+                  <input
+                    value={telegramSearch}
+                    onChange={(e) => setTelegramSearch(e.target.value)}
+                    placeholder="Filter movies..."
+                    className="w-full bg-white/10 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-primary/60"
+                  />
+                  {telegramSearch && (
+                    <button
+                      onClick={() => setTelegramSearch("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs"
+                    >✕</button>
+                  )}
+                </div>
+              </div>
+
+              {/* Loading skeletons */}
+              {isTelegramLoading && (
+                <div className="flex gap-2.5 pb-3 pl-4 pr-4 overflow-x-auto scrollbar-hide snap-x">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="flex-none w-[110px] aspect-[2/3] rounded-md bg-white/10" />
+                  ))}
+                </div>
+              )}
+
+              {/* Search results: grid */}
+              {!isTelegramLoading && telegramSearch.trim() && (
+                <div>
+                  {filtered.length === 0 ? (
+                    <p className="px-4 text-white/40 text-sm py-4">No movies found for "{telegramSearch}"</p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 px-4 pb-3">
+                      {filtered.map((movie, i) => (
+                        <motion.div
+                          key={movie.id}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: i * 0.02 }}
+                          className="cursor-pointer"
+                          onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
+                        >
+                          <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-white/5">
+                            {movie.poster ? (
+                              <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-black p-2">
+                                <p className="text-white text-[10px] text-center leading-tight">{movie.title}</p>
+                              </div>
+                            )}
+                            <div className="absolute bottom-0 left-0 right-0 px-1 pb-1 pt-3 bg-gradient-to-t from-black/80 to-transparent">
+                              <div className="flex gap-0.5 flex-wrap">
+                                {movie.qualities.map((q) => (
+                                  <span key={q.quality} className="text-[8px] bg-primary/80 text-white px-0.5 rounded font-bold">{q.quality}</span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-white/70 mt-1 line-clamp-2 leading-tight">{movie.title}</p>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Default horizontal scroll */}
+              {!isTelegramLoading && !telegramSearch.trim() && (
+                <div className="flex gap-2.5 overflow-x-auto pb-3 pl-4 pr-4 scrollbar-hide snap-x">
+                  {filtered.slice(0, 20).map((movie, i) => (
+                    <motion.div
+                      key={movie.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: i * 0.03 }}
+                      className="flex-none w-[110px] snap-start cursor-pointer"
+                      onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
+                    >
+                      <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-white/5">
+                        {movie.poster ? (
+                          <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-black p-2">
+                            <p className="text-white text-[10px] text-center leading-tight">{movie.title}</p>
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 px-1.5 pb-1 pt-4 bg-gradient-to-t from-black/80 to-transparent">
+                          <div className="flex gap-1 flex-wrap">
+                            {movie.qualities.map((q) => (
+                              <span key={q.quality} className="text-[9px] bg-primary/80 text-white px-1 rounded font-bold">{q.quality}</span>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <p className="text-[11px] text-white/70 mt-1 line-clamp-1 leading-tight">{movie.title}</p>
-                  </motion.div>
-                ))}
+                      <p className="text-[11px] text-white/70 mt-1 line-clamp-1 leading-tight">{movie.title}</p>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
-        </section>
-      </div>
+        );
+      })()}
 
       {/* Catalog rows */}
       <div className="mt-2 space-y-5">
