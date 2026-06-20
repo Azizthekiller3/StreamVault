@@ -49,8 +49,8 @@ app.use(
       // Return null (block) rather than an Error (which causes 500)
       callback(null, false);
     },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-backfill-secret"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "x-backfill-secret", "x-admin-token"],
     credentials: false,
   }),
 );
