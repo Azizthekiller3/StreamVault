@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
-import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies } from "../services/telegramService.js";
+import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
 
 const router = Router();
 
@@ -25,6 +25,31 @@ router.post("/admin/login", (req, res) => {
     return;
   }
   res.json({ ok: true, token: generateAdminToken() });
+});
+
+// GET /api/admin/config  → get current channel and other config
+router.get("/admin/config", (req, res) => {
+  if (!requireToken(req, res)) return;
+  res.json({ ok: true, channel: getChannel() });
+});
+
+// PUT /api/admin/config  { channel }  → update channel username
+router.put("/admin/config", (req, res) => {
+  if (!requireToken(req, res)) return;
+  const { channel } = req.body as { channel?: unknown };
+  if (typeof channel !== "string" || !channel.trim()) {
+    res.status(400).json({ error: "channel is required" });
+    return;
+  }
+  // Only allow valid Telegram usernames: letters, digits, underscores, 5-32 chars
+  const clean = channel.replace(/^@/, "").trim();
+  if (!/^[a-zA-Z0-9_]{3,64}$/.test(clean)) {
+    res.status(400).json({ error: "Invalid channel username. Use only letters, numbers, underscores." });
+    return;
+  }
+  setChannel(clean);
+  req.log.info({ channel: clean }, "Admin updated channel");
+  res.json({ ok: true, channel: clean });
 });
 
 // POST /api/admin/parse  { text, poster? }  → parse only, don't save
