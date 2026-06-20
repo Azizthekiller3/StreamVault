@@ -27,13 +27,13 @@ router.post("/admin/login", (req, res) => {
   res.json({ ok: true, token: generateAdminToken() });
 });
 
-// GET /api/admin/config  → get current channel and other config
+// GET /api/admin/config
 router.get("/admin/config", (req, res) => {
   if (!requireToken(req, res)) return;
   res.json({ ok: true, channel: getChannel() });
 });
 
-// PUT /api/admin/config  { channel }  → update channel username
+// PUT /api/admin/config  { channel }
 router.put("/admin/config", (req, res) => {
   if (!requireToken(req, res)) return;
   const { channel } = req.body as { channel?: unknown };
@@ -41,7 +41,6 @@ router.put("/admin/config", (req, res) => {
     res.status(400).json({ error: "channel is required" });
     return;
   }
-  // Only allow valid Telegram usernames: letters, digits, underscores, 5-32 chars
   const clean = channel.replace(/^@/, "").trim();
   if (!/^[a-zA-Z0-9_]{3,64}$/.test(clean)) {
     res.status(400).json({ error: "Invalid channel username. Use only letters, numbers, underscores." });
@@ -63,7 +62,7 @@ router.post("/admin/parse", (req, res) => {
   const id = `admin-${Date.now()}`;
   const movie = parseRawPost(text.trim(), id, typeof poster === "string" ? poster.trim() : "");
   if (!movie) {
-    res.status(422).json({ error: "Could not find any Terabox quality links in the text. Make sure the post contains lines like '480p: https://...' or '720p: https://...'." });
+    res.status(422).json({ error: "Could not find any Terabox quality links. Make sure the post has lines like '480p: https://terabox.com/...'" });
     return;
   }
   res.json({ ok: true, movie });
@@ -90,7 +89,7 @@ router.post("/admin/movies", (req, res) => {
   res.status(201).json({ ok: true, movie });
 });
 
-// GET /api/admin/movies  → list seeded movies
+// GET /api/admin/movies
 router.get("/admin/movies", (req, res) => {
   if (!requireToken(req, res)) return;
   res.json({ ok: true, movies: seedMovies });
@@ -107,6 +106,54 @@ router.delete("/admin/movies/:id", (req, res) => {
   }
   req.log.info({ id }, "Admin deleted movie");
   res.json({ ok: true });
+});
+
+// POST /api/admin/bulk-parse  { posts: string[] }  → parse all, return what succeeded
+router.post("/admin/bulk-parse", (req, res) => {
+  if (!requireToken(req, res)) return;
+  const { posts } = req.body as { posts?: unknown };
+  if (!Array.isArray(posts) || posts.length === 0) {
+    res.status(400).json({ error: "posts array is required" });
+    return;
+  }
+  if (posts.length > 100) {
+    res.status(400).json({ error: "Maximum 100 posts per bulk import." });
+    return;
+  }
+  const movies = [];
+  let failed = 0;
+  for (const post of posts) {
+    if (typeof post !== "string" || !post.trim()) { failed++; continue; }
+    const movie = parseRawPost(post.trim(), `admin-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+    if (movie) movies.push(movie);
+    else failed++;
+  }
+  res.json({ ok: true, movies, failed, total: posts.length });
+});
+
+// POST /api/admin/bulk-save  { posts: string[] }  → parse + save all
+router.post("/admin/bulk-save", (req, res) => {
+  if (!requireToken(req, res)) return;
+  const { posts } = req.body as { posts?: unknown };
+  if (!Array.isArray(posts) || posts.length === 0) {
+    res.status(400).json({ error: "posts array is required" });
+    return;
+  }
+  if (posts.length > 100) {
+    res.status(400).json({ error: "Maximum 100 posts per bulk import." });
+    return;
+  }
+  let saved = 0;
+  let failed = 0;
+  for (const post of posts) {
+    if (typeof post !== "string" || !post.trim()) { failed++; continue; }
+    const id = `admin-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const movie = parseRawPost(post.trim(), id);
+    if (movie) { addSeedMovie(movie); saved++; }
+    else failed++;
+  }
+  req.log.info({ saved, failed }, "Admin bulk saved movies");
+  res.json({ ok: true, saved, failed });
 });
 
 export default router;
