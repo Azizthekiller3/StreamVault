@@ -46,7 +46,8 @@ app.use(
       // Allow any *.koyeb.app for internal health checks
       if (origin.endsWith(".koyeb.app")) return callback(null, true);
       if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin not allowed: ${origin}`));
+      // Return null (block) rather than an Error (which causes 500)
+      callback(null, false);
     },
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "x-backfill-secret"],
