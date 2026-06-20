@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { fetchChannelMovies, fetchMovieById, seedMovies, type TelegramMovie } from "../services/telegramService.js";
+import { fetchChannelMovies, fetchMovieById, addSeedMovie, removeSeedMovie, seedMovies, type TelegramMovie } from "../services/telegramService.js";
 import { enrichFromTmdb } from "../services/tmdbService.js";
 import { getComments, addComment } from "../services/commentService.js";
 import { verifySecret } from "../lib/auth.js";
@@ -85,7 +85,6 @@ router.get("/tmdb/enrich", async (req, res) => {
 
 // ── Comments ───────────────────────────────────────────────────────────────
 
-// GET /api/comments/:movieId
 router.get("/comments/:movieId", (req, res) => {
   const { movieId } = req.params;
   if (!isValidId(movieId)) {
@@ -101,7 +100,6 @@ router.get("/comments/:movieId", (req, res) => {
   }
 });
 
-// POST /api/comments/:movieId  { username, text }
 router.post("/comments/:movieId", (req, res) => {
   const { movieId } = req.params;
   if (!isValidId(movieId)) {
@@ -130,20 +128,16 @@ router.post("/comments/:movieId", (req, res) => {
   }
 });
 
-// ── Admin — Seed movie for testing ─────────────────────────────────────────
-// POST /api/telegram/seed  { id, title, poster, audio, qualities }
-// Requires x-backfill-secret header.
+// ── Legacy seed endpoints (kept for backward compat) ───────────────────────
+
 router.post("/telegram/seed", (req, res) => {
   if (!requireSecret(req, res)) return;
-
   const body = req.body as Partial<TelegramMovie>;
   const { id, title, audio, qualities, poster } = body;
-
   if (!id || !title || !Array.isArray(qualities) || qualities.length === 0) {
     res.status(400).json({ error: "id, title and at least one quality are required" });
     return;
   }
-
   const movie: TelegramMovie = {
     id: String(id).slice(0, 64),
     title: String(title).slice(0, 200),
@@ -155,26 +149,19 @@ router.post("/telegram/seed", (req, res) => {
       .slice(0, 10),
     messageId: 0,
   };
-
-  // Replace if same id already seeded
-  const idx = seedMovies.findIndex((m) => m.id === movie.id);
-  if (idx >= 0) seedMovies.splice(idx, 1, movie);
-  else seedMovies.unshift(movie);
-
-  req.log.info({ id: movie.id, title: movie.title }, "Movie seeded");
+  addSeedMovie(movie);
+  req.log.info({ id: movie.id, title: movie.title }, "Movie seeded (legacy)");
   res.status(201).json({ ok: true, movie });
 });
 
-// ── Admin — Remove seed movie ──────────────────────────────────────────────
 router.delete("/telegram/seed/:id", (req, res) => {
   if (!requireSecret(req, res)) return;
   const { id } = req.params;
-  const idx = seedMovies.findIndex((m) => m.id === id);
-  if (idx < 0) {
+  const removed = removeSeedMovie(id);
+  if (!removed) {
     res.status(404).json({ error: "Seed movie not found" });
     return;
   }
-  seedMovies.splice(idx, 1);
   res.json({ ok: true });
 });
 
@@ -215,14 +202,11 @@ router.post("/telegram/register-webhook", async (req, res) => {
       res.status(500).json({ error: "TELEGRAM_BOT_TOKEN not configured" });
       return;
     }
-    const tgRes = await fetch(
-      `https://api.telegram.org/bot${token}/setWebhook`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: webhookUrl }),
-      },
-    );
+    const tgRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: webhookUrl }),
+    });
     const data = await tgRes.json();
     res.json(data);
   } catch (err) {
@@ -240,7 +224,6 @@ router.post("/telegram/webhook", async (req, res) => {
       channel_post?: { message_id: number; text?: string; photo?: unknown[] };
     };
     if (!update?.channel_post?.text) return;
-    // Cache invalidation handled by natural TTL expiry
   } catch (err) {
     req.log.error({ err }, "Webhook processing error");
   }
