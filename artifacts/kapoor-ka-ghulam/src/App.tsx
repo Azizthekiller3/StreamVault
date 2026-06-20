@@ -15,6 +15,7 @@ import Watch from "@/pages/watch";
 import Browse from "@/pages/browse";
 import TelegramInfo from "@/pages/telegram-info";
 import DownloadHistory from "@/pages/download-history";
+import AdminPage from "@/pages/admin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,6 +32,7 @@ function App() {
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL?.replace(/\/$/, "") || ""}>
           <Switch>
+            <Route path="/admin" component={AdminPage} />
             <Route path="/watch" component={Watch} />
             <Route>
               <Layout>
