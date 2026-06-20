@@ -9,6 +9,9 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 
+// In-memory seed store — admin-injected movies for testing
+export const seedMovies: TelegramMovie[] = [];
+
 export interface TeraboxQuality {
   quality: string;
   url: string;
@@ -28,10 +31,10 @@ const URL_CHARS = /https?:\/\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%\-]+/;
 function parseQualities(lines: string[]): TeraboxQuality[] {
   const qualities: TeraboxQuality[] = [];
   const patterns = [
-    { label: "480p", re: /480p/i },
-    { label: "720p", re: /720p/i },
+    { label: "480p",  re: /480p/i },
+    { label: "720p",  re: /720p/i },
     { label: "1080p", re: /1080p/i },
-    { label: "4K", re: /4[Kk]/i },
+    { label: "4K",    re: /\b(4[Kk]|2160p)\b/ },
   ];
 
   for (const line of lines) {
@@ -50,17 +53,19 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
 
 function parseTitle(lines: string[]): string {
   for (const line of lines) {
-    const titleMatch = line.match(/title\s*[:\-–]\s*(.+)/i);
+    // Matches: "Title: Foo", "Title:- Foo", "🎨 Title:- Foo" etc.
+    const titleMatch = line.match(/title\s*[:\-–]+\s*(.+)/i);
     if (titleMatch) {
       return titleMatch[1]
+        .replace(/^[\s\-–:]+/, "")           // strip leading dashes/colons
         .replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "")
         .trim();
     }
   }
-  // First non-link, non-quality line
+  // Fallback: first non-link, non-quality, non-noise line
   for (const line of lines) {
     if (line.match(/terabox/i) || line.match(/^\s*\d{3,4}p/i) || line.match(/^https?:/i)) continue;
-    if (line.match(/backup|t\.me|subscribe/i)) continue;
+    if (line.match(/backup|t\.me|subscribe|audio|quality|genre/i)) continue;
     const clean = line.replace(/[^\p{L}\p{N}\s\-:'.!?()#]/gu, "").trim();
     if (clean.length > 2) return clean;
   }
@@ -69,9 +74,13 @@ function parseTitle(lines: string[]): string {
 
 function parseAudio(lines: string[]): string {
   for (const line of lines) {
-    const m = line.match(/audio\s*[:\-–]\s*(.+)/i);
+    // Matches: "Audio: Hindi", "Audio:- Hindi (Esub)" etc.
+    const m = line.match(/audio\s*[:\-–]+\s*(.+)/i);
     if (m) {
-      return m[1].replace(/[^\p{L}\p{N}\s+]/gu, "").trim();
+      return m[1]
+        .replace(/^[\s\-–:]+/, "")
+        .replace(/[^\p{L}\p{N}\s+()\-]/gu, "")
+        .trim();
     }
   }
   const langs: string[] = [];
@@ -83,7 +92,6 @@ function parseAudio(lines: string[]): string {
 }
 
 function htmlToLines($el: cheerio.Cheerio<cheerio.Element>, $: cheerio.CheerioAPI): string[] {
-  // Replace <br> with newline marker before getting text
   $el.find("br").replaceWith("\n");
   const raw = $el.text();
   return raw
@@ -95,7 +103,11 @@ function htmlToLines($el: cheerio.Cheerio<cheerio.Element>, $: cheerio.CheerioAP
 export async function fetchChannelMovies(before?: number): Promise<{ movies: TelegramMovie[]; hasMore: boolean }> {
   const cacheKey = before ? `before-${before}` : "latest";
   const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    // Merge seed movies into cached result
+    const merged = mergeSeed(cached.data.movies);
+    return { movies: merged, hasMore: cached.data.hasMore || seedMovies.length > 0 };
+  }
 
   const url = before ? `https://t.me/s/${CHANNEL}?before=${before}` : `https://t.me/s/${CHANNEL}`;
 
@@ -126,7 +138,6 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
     const qualities = parseQualities(lines);
     if (qualities.length === 0) return;
 
-    // Poster: background-image style on the photo wrap
     const style =
       $(el).find(".tgme_widget_message_photo_wrap").attr("style") ||
       $(el).find("[style*='background-image']").first().attr("style") ||
@@ -151,11 +162,29 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
 
   const result = { movies: movies.reverse(), hasMore: movies.length > 0 };
   cache.set(cacheKey, { data: result, ts: Date.now() });
-  return result;
+
+  const merged = mergeSeed(result.movies);
+  return { movies: merged, hasMore: result.hasMore || seedMovies.length > 0 };
+}
+
+function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
+  if (seedMovies.length === 0) return scraped;
+  const scrapedIds = new Set(scraped.map((m) => m.id));
+  const newSeeds = seedMovies.filter((m) => !scrapedIds.has(m.id));
+  return [...newSeeds, ...scraped];
 }
 
 export async function fetchMovieById(id: string): Promise<TelegramMovie | null> {
+  // Check seed first
+  const fromSeed = seedMovies.find((m) => m.id === id);
+  if (fromSeed) return fromSeed;
+
   const msgId = parseInt(id, 10);
-  const { movies } = await fetchChannelMovies(msgId + 2);
+  if (!isNaN(msgId)) {
+    const { movies } = await fetchChannelMovies(msgId + 2);
+    return movies.find((m) => m.id === id) ?? null;
+  }
+  // Non-numeric id (seed movies with custom ids)
+  const { movies } = await fetchChannelMovies();
   return movies.find((m) => m.id === id) ?? null;
 }

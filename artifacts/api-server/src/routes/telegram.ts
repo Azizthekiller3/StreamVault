@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { fetchChannelMovies, fetchMovieById } from "../services/telegramService.js";
+import { fetchChannelMovies, fetchMovieById, seedMovies, type TelegramMovie } from "../services/telegramService.js";
 import { enrichFromTmdb } from "../services/tmdbService.js";
 import { getComments, addComment } from "../services/commentService.js";
 import { verifySecret } from "../lib/auth.js";
@@ -67,7 +67,6 @@ router.get("/tmdb/enrich", async (req, res) => {
     res.status(400).json({ error: "title query param required" });
     return;
   }
-  // Limit title length to prevent abuse
   if (title.trim().length > 200) {
     res.status(400).json({ error: "title too long" });
     return;
@@ -128,6 +127,54 @@ router.post("/comments/:movieId", (req, res) => {
   }
 });
 
+// ── Admin — Seed movie for testing ─────────────────────────────────────────
+// POST /api/telegram/seed  { id, title, poster, audio, qualities }
+// Requires x-backfill-secret header.
+router.post("/telegram/seed", (req, res) => {
+  if (!requireSecret(req, res)) return;
+
+  const body = req.body as Partial<TelegramMovie>;
+  const { id, title, audio, qualities, poster } = body;
+
+  if (!id || !title || !Array.isArray(qualities) || qualities.length === 0) {
+    res.status(400).json({ error: "id, title and at least one quality are required" });
+    return;
+  }
+
+  const movie: TelegramMovie = {
+    id: String(id).slice(0, 64),
+    title: String(title).slice(0, 200),
+    poster: typeof poster === "string" ? poster : "",
+    audio: typeof audio === "string" ? audio : "",
+    qualities: qualities
+      .filter((q) => q && typeof q.quality === "string" && typeof q.url === "string")
+      .map((q) => ({ quality: String(q.quality), url: String(q.url) }))
+      .slice(0, 10),
+    messageId: 0,
+  };
+
+  // Replace if same id already seeded
+  const idx = seedMovies.findIndex((m) => m.id === movie.id);
+  if (idx >= 0) seedMovies.splice(idx, 1, movie);
+  else seedMovies.unshift(movie);
+
+  req.log.info({ id: movie.id, title: movie.title }, "Movie seeded");
+  res.status(201).json({ ok: true, movie });
+});
+
+// ── Admin — Remove seed movie ──────────────────────────────────────────────
+router.delete("/telegram/seed/:id", (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const { id } = req.params;
+  const idx = seedMovies.findIndex((m) => m.id === id);
+  if (idx < 0) {
+    res.status(404).json({ error: "Seed movie not found" });
+    return;
+  }
+  seedMovies.splice(idx, 1);
+  res.json({ ok: true });
+});
+
 // ── Admin — Telegram Backfill ──────────────────────────────────────────────
 
 router.post("/telegram/backfill", async (req, res) => {
@@ -184,15 +231,13 @@ router.post("/telegram/register-webhook", async (req, res) => {
 // ── Webhook receiver ───────────────────────────────────────────────────────
 
 router.post("/telegram/webhook", async (req, res) => {
-  // Telegram calls this endpoint — respond 200 immediately
   res.json({ ok: true });
   try {
     const update = req.body as {
       channel_post?: { message_id: number; text?: string; photo?: unknown[] };
     };
     if (!update?.channel_post?.text) return;
-    // Invalidate cache so next fetch picks up new movie
-    // (telegramService cache will naturally expire; no action needed here)
+    // Cache invalidation handled by natural TTL expiry
   } catch (err) {
     req.log.error({ err }, "Webhook processing error");
   }
