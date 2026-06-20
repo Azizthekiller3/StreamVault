@@ -11,7 +11,7 @@ function setToken(t: string) { sessionStorage.setItem(TOKEN_KEY, t); }
 function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
 
 async function apiFetch(path: string, opts: RequestInit = {}) {
-  const r = await fetch(`${apiBase}${path}`, {
+  return fetch(`${apiBase}${path}`, {
     ...opts,
     headers: {
       "Content-Type": "application/json",
@@ -19,7 +19,6 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
       ...(opts.headers ?? {}),
     },
   });
-  return r;
 }
 
 export default function AdminPage() {
@@ -29,6 +28,7 @@ export default function AdminPage() {
   const [loginErr, setLoginErr] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
+  // Add movie
   const [rawText, setRawText] = useState("");
   const [posterUrl, setPosterUrl] = useState("");
   const [preview, setPreview] = useState<Movie | null>(null);
@@ -36,10 +36,16 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [saveOk, setSaveOk] = useState("");
 
+  // Saved movies list
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loadingMovies, setLoadingMovies] = useState(false);
 
-  // Check if already logged in
+  // Channel settings
+  const [channel, setChannel] = useState("");
+  const [channelInput, setChannelInput] = useState("");
+  const [channelSaving, setChannelSaving] = useState(false);
+  const [channelMsg, setChannelMsg] = useState("");
+
   useEffect(() => {
     if (getToken()) verifyLogin();
   }, []);
@@ -50,8 +56,18 @@ export default function AdminPage() {
       const data = await r.json() as { movies: Movie[] };
       setMovies(data.movies);
       setLoggedIn(true);
+      loadConfig();
     } else {
       clearToken();
+    }
+  }
+
+  async function loadConfig() {
+    const r = await apiFetch("/api/admin/config");
+    if (r.ok) {
+      const data = await r.json() as { channel: string };
+      setChannel(data.channel);
+      setChannelInput(data.channel);
     }
   }
 
@@ -65,10 +81,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      if (!r.ok) {
-        setLoginErr("Wrong username or password.");
-        return;
-      }
+      if (!r.ok) { setLoginErr("Wrong username or password."); return; }
       const data = await r.json() as { token: string };
       setToken(data.token);
       setPassword("");
@@ -82,9 +95,7 @@ export default function AdminPage() {
   }
 
   async function handleParse() {
-    setParseErr("");
-    setPreview(null);
-    setSaveOk("");
+    setParseErr(""); setPreview(null); setSaveOk("");
     if (!rawText.trim()) { setParseErr("Paste the Telegram post text first."); return; }
     const r = await apiFetch("/api/admin/parse", {
       method: "POST",
@@ -97,9 +108,7 @@ export default function AdminPage() {
 
   async function handleSave() {
     if (!preview) return;
-    setSaving(true);
-    setSaveOk("");
-    setParseErr("");
+    setSaving(true); setSaveOk(""); setParseErr("");
     const r = await apiFetch("/api/admin/movies", {
       method: "POST",
       body: JSON.stringify({ text: rawText, poster: posterUrl }),
@@ -107,9 +116,7 @@ export default function AdminPage() {
     const data = await r.json() as { movie?: Movie; error?: string };
     if (!r.ok) { setParseErr(data.error ?? "Save failed."); setSaving(false); return; }
     setSaveOk(`✅ "${data.movie!.title}" saved permanently!`);
-    setPreview(null);
-    setRawText("");
-    setPosterUrl("");
+    setPreview(null); setRawText(""); setPosterUrl("");
     await loadMovies();
     setSaving(false);
   }
@@ -130,6 +137,20 @@ export default function AdminPage() {
     if (r.ok) await loadMovies();
   }
 
+  async function handleChannelSave() {
+    const newChannel = channelInput.replace(/^@/, "").trim();
+    if (!newChannel) return;
+    setChannelSaving(true); setChannelMsg("");
+    const r = await apiFetch("/api/admin/config", {
+      method: "PUT",
+      body: JSON.stringify({ channel: newChannel }),
+    });
+    const data = await r.json() as { channel?: string; error?: string };
+    if (!r.ok) { setChannelMsg(`❌ ${data.error ?? "Failed"}`); }
+    else { setChannel(data.channel!); setChannelInput(data.channel!); setChannelMsg(`✅ Channel changed to @${data.channel}`); }
+    setChannelSaving(false);
+  }
+
   // ── Login screen ──────────────────────────────────────────────────────────
   if (!loggedIn) {
     return (
@@ -142,27 +163,18 @@ export default function AdminPage() {
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <input
-              type="text"
-              autoComplete="username"
-              placeholder="Username"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
+              type="text" autoComplete="username" placeholder="Username"
+              value={username} onChange={e => setUsername(e.target.value)}
               className="w-full bg-gray-800 text-white rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-red-500 placeholder-gray-500"
             />
             <input
-              type="password"
-              autoComplete="current-password"
-              placeholder="Password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
+              type="password" autoComplete="current-password" placeholder="Password"
+              value={password} onChange={e => setPassword(e.target.value)}
               className="w-full bg-gray-800 text-white rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-red-500 placeholder-gray-500"
             />
             {loginErr && <p className="text-red-400 text-sm">{loginErr}</p>}
-            <button
-              type="submit"
-              disabled={loginLoading}
-              className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition"
-            >
+            <button type="submit" disabled={loginLoading}
+              className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition">
               {loginLoading ? "Logging in…" : "Log In"}
             </button>
           </form>
@@ -175,25 +187,68 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       {/* Header */}
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
+      <div className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <span className="text-xl">🎬</span>
           <span className="font-bold text-white">FlixNest Admin</span>
         </div>
-        <button
-          onClick={() => { clearToken(); setLoggedIn(false); }}
-          className="text-gray-400 hover:text-white text-sm transition"
-        >
+        <button onClick={() => { clearToken(); setLoggedIn(false); }}
+          className="text-gray-400 hover:text-white text-sm transition">
           Log out
         </button>
       </div>
 
-      <div className="max-w-3xl mx-auto p-4 space-y-6">
+      <div className="max-w-3xl mx-auto p-4 space-y-5">
 
-        {/* Add Movie */}
+        {/* ── Channel Settings ── */}
+        <div className="bg-gray-900 rounded-xl p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">📡</span>
+            <h2 className="text-lg font-bold text-white">Telegram Channel</h2>
+          </div>
+          <p className="text-gray-400 text-sm">
+            Current: <span className="text-red-400 font-mono font-medium">@{channel || "…"}</span>
+            {" "}— Change this if your channel gets banned.
+          </p>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 select-none">@</span>
+              <input
+                type="text"
+                value={channelInput.replace(/^@/, "")}
+                onChange={e => { setChannelInput(e.target.value); setChannelMsg(""); }}
+                placeholder="channelUsername"
+                className="w-full bg-gray-800 text-white rounded-lg pl-8 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-red-500 placeholder-gray-600 font-mono"
+              />
+            </div>
+            <button
+              onClick={handleChannelSave}
+              disabled={channelSaving || channelInput.replace(/^@/, "").trim() === channel}
+              className="bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold px-4 py-2.5 rounded-lg transition text-sm whitespace-nowrap"
+            >
+              {channelSaving ? "Saving…" : "Update"}
+            </button>
+          </div>
+          {channelMsg && (
+            <p className={`text-sm ${channelMsg.startsWith("✅") ? "text-green-400" : "text-red-400"}`}>
+              {channelMsg}
+            </p>
+          )}
+          <p className="text-gray-600 text-xs">
+            ⚠️ The channel must be public. After updating, existing scraped movies stay — only new fetches will use the new channel.
+          </p>
+        </div>
+
+        {/* ── Add Movie ── */}
         <div className="bg-gray-900 rounded-xl p-5 space-y-4">
-          <h2 className="text-lg font-bold text-white">Add Movie</h2>
-          <p className="text-gray-400 text-sm">Paste a Telegram post. Must contain quality links like <code className="bg-gray-800 px-1 rounded text-red-400">480p: https://terabox.com/...</code></p>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">➕</span>
+            <h2 className="text-lg font-bold text-white">Add Movie</h2>
+          </div>
+          <p className="text-gray-400 text-sm">
+            Paste a Telegram post. Must contain quality links like{" "}
+            <code className="bg-gray-800 px-1 rounded text-red-400 text-xs">480p: https://terabox.com/...</code>
+          </p>
 
           <textarea
             rows={8}
@@ -204,25 +259,19 @@ export default function AdminPage() {
           />
 
           <input
-            type="url"
-            value={posterUrl}
+            type="url" value={posterUrl}
             onChange={e => setPosterUrl(e.target.value)}
-            placeholder="Poster image URL (optional) — paste a direct image link"
+            placeholder="Poster image URL (optional)"
             className="w-full bg-gray-800 text-white rounded-lg px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-red-500 placeholder-gray-600"
           />
 
           <div className="flex gap-3">
-            <button
-              onClick={handleParse}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition text-sm"
-            >
+            <button onClick={handleParse}
+              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 rounded-lg transition text-sm">
               Preview Parse
             </button>
-            <button
-              onClick={handleSave}
-              disabled={!preview || saving}
-              className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg transition text-sm"
-            >
+            <button onClick={handleSave} disabled={!preview || saving}
+              className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg transition text-sm">
               {saving ? "Saving…" : "Save Permanently"}
             </button>
           </div>
@@ -230,14 +279,12 @@ export default function AdminPage() {
           {parseErr && <p className="text-red-400 text-sm">{parseErr}</p>}
           {saveOk && <p className="text-green-400 text-sm">{saveOk}</p>}
 
-          {/* Preview card */}
           {preview && (
             <div className="border border-gray-700 rounded-xl p-4 flex gap-4 bg-gray-800">
-              {preview.poster ? (
-                <img src={preview.poster} alt="" className="w-20 h-28 object-cover rounded-lg flex-shrink-0" />
-              ) : (
-                <div className="w-20 h-28 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 text-2xl">🎬</div>
-              )}
+              {preview.poster
+                ? <img src={preview.poster} alt="" className="w-20 h-28 object-cover rounded-lg flex-shrink-0" />
+                : <div className="w-20 h-28 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 text-2xl">🎬</div>
+              }
               <div className="min-w-0">
                 <p className="font-bold text-white text-base leading-tight">{preview.title}</p>
                 {preview.audio && <p className="text-gray-400 text-xs mt-1">🔊 {preview.audio}</p>}
@@ -248,23 +295,25 @@ export default function AdminPage() {
                     </span>
                   ))}
                 </div>
-                <p className="text-gray-500 text-xs mt-2">ID: {preview.id}</p>
+                <p className="text-gray-500 text-xs mt-2">Looks good? Hit "Save Permanently" ↑</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Saved movies */}
+        {/* ── Saved Movies ── */}
         <div className="bg-gray-900 rounded-xl p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white">Saved Movies ({movies.length})</h2>
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🎞️</span>
+              <h2 className="text-lg font-bold text-white">Saved Movies ({movies.length})</h2>
+            </div>
             <button onClick={loadMovies} className="text-gray-400 hover:text-white text-sm transition">
               Refresh
             </button>
           </div>
 
           {loadingMovies && <p className="text-gray-500 text-sm">Loading…</p>}
-
           {!loadingMovies && movies.length === 0 && (
             <p className="text-gray-500 text-sm">No movies saved yet. Add one above.</p>
           )}
@@ -272,11 +321,10 @@ export default function AdminPage() {
           <div className="space-y-2">
             {movies.map(m => (
               <div key={m.id} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
-                {m.poster ? (
-                  <img src={m.poster} alt="" className="w-10 h-14 object-cover rounded flex-shrink-0" />
-                ) : (
-                  <div className="w-10 h-14 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>
-                )}
+                {m.poster
+                  ? <img src={m.poster} alt="" className="w-10 h-14 object-cover rounded flex-shrink-0" />
+                  : <div className="w-10 h-14 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>
+                }
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-white text-sm truncate">{m.title}</p>
                   <div className="flex flex-wrap gap-1 mt-1">
@@ -285,13 +333,9 @@ export default function AdminPage() {
                     ))}
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(m.id, m.title)}
-                  className="text-gray-500 hover:text-red-400 transition flex-shrink-0 text-lg leading-none"
-                  title="Delete"
-                >
-                  ×
-                </button>
+                <button onClick={() => handleDelete(m.id, m.title)}
+                  className="text-gray-500 hover:text-red-400 transition flex-shrink-0 text-xl leading-none px-1"
+                  title="Delete">×</button>
               </div>
             ))}
           </div>
