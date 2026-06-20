@@ -2,16 +2,57 @@ import * as cheerio from "cheerio";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 
-const CHANNEL = "backupchannek";
 const CACHE_TTL = 5 * 60 * 1000;
 
-// ── Persistent seed store ──────────────────────────────────────────────────
+// ── Persistent data directory ──────────────────────────────────────────────
 const DATA_DIR = join(process.cwd(), "data");
 const SEEDS_FILE = join(DATA_DIR, "seeded-movies.json");
+const CONFIG_FILE = join(DATA_DIR, "config.json");
 
+function ensureDir() {
+  mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// ── Config (channel name) ──────────────────────────────────────────────────
+interface AppConfig {
+  channel: string;
+}
+
+function loadConfig(): AppConfig {
+  try {
+    ensureDir();
+    const raw = readFileSync(CONFIG_FILE, "utf8");
+    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    return { channel: parsed.channel || "backupchannek" };
+  } catch {
+    return { channel: "backupchannek" };
+  }
+}
+
+function saveConfig(cfg: AppConfig) {
+  try {
+    ensureDir();
+    writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), "utf8");
+  } catch {}
+}
+
+const appConfig: AppConfig = loadConfig();
+
+export function getChannel(): string {
+  return appConfig.channel;
+}
+
+export function setChannel(username: string): void {
+  appConfig.channel = username.replace(/^@/, "").trim();
+  saveConfig(appConfig);
+  // Bust cache so next request fetches from new channel
+  cache.clear();
+}
+
+// ── Persistent seed store ──────────────────────────────────────────────────
 function loadSeeds(): TelegramMovie[] {
   try {
-    mkdirSync(DATA_DIR, { recursive: true });
+    ensureDir();
     const raw = readFileSync(SEEDS_FILE, "utf8");
     return JSON.parse(raw) as TelegramMovie[];
   } catch {
@@ -21,7 +62,7 @@ function loadSeeds(): TelegramMovie[] {
 
 function saveSeeds() {
   try {
-    mkdirSync(DATA_DIR, { recursive: true });
+    ensureDir();
     writeFileSync(SEEDS_FILE, JSON.stringify(seedMovies, null, 2), "utf8");
   } catch {}
 }
@@ -59,7 +100,6 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
     { label: "1080p", re: /1080p/i },
     { label: "4K",    re: /\b(4[Kk]|2160p)\b/ },
   ];
-
   for (const line of lines) {
     for (const { label, re } of patterns) {
       if (!re.test(line)) continue;
@@ -78,10 +118,7 @@ function parseTitle(lines: string[]): string {
   for (const line of lines) {
     const titleMatch = line.match(/title\s*[:\-–]+\s*(.+)/i);
     if (titleMatch) {
-      return titleMatch[1]
-        .replace(/^[\s\-–:]+/, "")
-        .replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "")
-        .trim();
+      return titleMatch[1].replace(/^[\s\-–:]+/, "").replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "").trim();
     }
   }
   for (const line of lines) {
@@ -96,12 +133,7 @@ function parseTitle(lines: string[]): string {
 function parseAudio(lines: string[]): string {
   for (const line of lines) {
     const m = line.match(/audio\s*[:\-–]+\s*(.+)/i);
-    if (m) {
-      return m[1]
-        .replace(/^[\s\-–:]+/, "")
-        .replace(/[^\p{L}\p{N}\s+()\-]/gu, "")
-        .trim();
-    }
+    if (m) return m[1].replace(/^[\s\-–:]+/, "").replace(/[^\p{L}\p{N}\s+()\-]/gu, "").trim();
   }
   const langs: string[] = [];
   for (const line of lines) {
@@ -114,8 +146,7 @@ function parseAudio(lines: string[]): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function htmlToLines($el: cheerio.Cheerio<any>, $: cheerio.CheerioAPI): string[] {
   $el.find("br").replaceWith("\n");
-  const raw = $el.text();
-  return raw.split("\n").map((l) => l.trim()).filter(Boolean);
+  return $el.text().split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
 /** Parse a raw Telegram post (plain text) into a TelegramMovie. */
@@ -123,14 +154,7 @@ export function parseRawPost(text: string, id: string, poster = ""): TelegramMov
   const lines = text.split(/\n|\r/).map((l) => l.trim()).filter(Boolean);
   const qualities = parseQualities(lines);
   if (qualities.length === 0) return null;
-  return {
-    id,
-    title: parseTitle(lines),
-    poster,
-    audio: parseAudio(lines),
-    qualities,
-    messageId: 0,
-  };
+  return { id, title: parseTitle(lines), poster, audio: parseAudio(lines), qualities, messageId: 0 };
 }
 
 /** Add or replace a movie in the persistent seed store. */
@@ -152,13 +176,14 @@ export function removeSeedMovie(id: string): boolean {
 
 // ── Channel scraper ────────────────────────────────────────────────────────
 export async function fetchChannelMovies(before?: number): Promise<{ movies: TelegramMovie[]; hasMore: boolean }> {
-  const cacheKey = before ? `before-${before}` : "latest";
+  const channel = getChannel();
+  const cacheKey = before ? `${channel}-before-${before}` : `${channel}-latest`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL) {
     return { movies: mergeSeed(cached.data.movies), hasMore: cached.data.hasMore || seedMovies.length > 0 };
   }
 
-  const url = before ? `https://t.me/s/${CHANNEL}?before=${before}` : `https://t.me/s/${CHANNEL}`;
+  const url = before ? `https://t.me/s/${channel}?before=${before}` : `https://t.me/s/${channel}`;
   const response = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
