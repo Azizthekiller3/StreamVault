@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ArrowLeft, Download, Play, Loader2, Bookmark, Share2, Star, Clock, Calendar, Users } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ArrowLeft, Download, Play, Loader2, Bookmark, Share2, Star, Clock, Calendar, Users, Send } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAddToWatchlist, useRemoveFromWatchlist, useGetWatchlist, getGetWatchlistQueryKey } from "@workspace/api-client-react";
@@ -7,7 +7,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api-base";
 import { detectGenres } from "@/lib/genres";
-import { getRating, setRating } from "@/lib/flixnest-store";
+import { getRating, setRating, addRecentlyViewed } from "@/lib/flixnest-store";
+import { useLocation } from "wouter";
+import { motion } from "framer-motion";
+
+const TELEGRAM_CHANNEL = "https://t.me/dbxixjdb";
 
 interface TeraboxQuality { quality: string; url: string; }
 interface TelegramMovie {
@@ -26,10 +30,17 @@ async function fetchMovie(id: string): Promise<TelegramMovie> {
   if (!res.ok) throw new Error("Failed to load movie");
   return res.json();
 }
+async function fetchAllMovies(): Promise<TelegramMovie[]> {
+  const res = await fetch(`${API_BASE}/api/telegram/movies`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.movies ?? [];
+}
 async function fetchTmdb(title: string): Promise<TmdbData | null> {
   const res = await fetch(`${API_BASE}/api/tmdb/enrich?title=${encodeURIComponent(title)}`);
   if (!res.ok) return null;
-  return res.json();
+  const data = await res.json();
+  return data ?? null;
 }
 
 function StarRating({ movieId }: { movieId: string }) {
@@ -46,6 +57,55 @@ function StarRating({ movieId }: { movieId: string }) {
         </button>
       ))}
       {rating > 0 && <span className="text-white/40 text-xs ml-1">{rating}/5</span>}
+    </div>
+  );
+}
+
+function SimilarMovies({ currentId, currentTitle, allMovies }: { currentId: string; currentTitle: string; allMovies: TelegramMovie[] }) {
+  const [, setLocation] = useLocation();
+  const currentGenres = detectGenres(currentTitle).map((g) => g.genre);
+
+  const similar = allMovies
+    .filter((m) => m.id !== currentId)
+    .map((m) => {
+      const genres = detectGenres(m.title).map((g) => g.genre);
+      const overlap = genres.filter((g) => currentGenres.includes(g)).length;
+      // also score title word overlap
+      const currentWords = currentTitle.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+      const titleScore = currentWords.filter((w) => m.title.toLowerCase().includes(w)).length;
+      return { movie: m, score: overlap * 2 + titleScore };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map((x) => x.movie);
+
+  if (!similar.length) return null;
+
+  return (
+    <div className="mt-6 mb-4">
+      <div className="flex items-center gap-2 px-4 mb-3">
+        <Play className="w-4 h-4 text-primary fill-primary" />
+        <h2 className="text-white/40 text-xs uppercase tracking-wide font-medium">Similar Movies</h2>
+      </div>
+      <div className="flex gap-2.5 overflow-x-auto pb-3 pl-4 pr-4 scrollbar-hide snap-x">
+        {similar.map((movie, i) => (
+          <motion.div key={movie.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}
+            className="flex-none w-[100px] snap-start cursor-pointer" onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}>
+            <div className="relative aspect-[2/3] rounded-md overflow-hidden bg-white/5">
+              {movie.poster
+                ? <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover" loading="lazy" />
+                : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/20 to-black p-1"><p className="text-white text-[9px] text-center leading-tight">{movie.title}</p></div>}
+              <div className="absolute bottom-0 left-0 right-0 px-1 pb-0.5 pt-3 bg-gradient-to-t from-black/80 to-transparent">
+                <div className="flex gap-0.5 flex-wrap">
+                  {movie.qualities.slice(0, 2).map((q) => <span key={q.quality} className="text-[8px] bg-primary/80 text-white px-0.5 rounded font-bold">{q.quality}</span>)}
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-white/60 mt-1 line-clamp-2 leading-tight">{movie.title}</p>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -69,6 +129,19 @@ export default function TelegramInfo() {
     enabled: !!movie?.title,
     staleTime: 30 * 60 * 1000,
   });
+
+  const { data: allMovies = [] } = useQuery({
+    queryKey: ["telegram-movies-all"],
+    queryFn: fetchAllMovies,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Track recently viewed
+  useEffect(() => {
+    if (movie) {
+      addRecentlyViewed({ id: movie.id, title: movie.title, poster: tmdb?.poster || movie.poster || "" });
+    }
+  }, [movie?.id, tmdb?.poster]);
 
   const { data: watchlist } = useGetWatchlist();
   const addToWatchlist = useAddToWatchlist({ mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetWatchlistQueryKey() }) } });
@@ -159,24 +232,15 @@ export default function TelegramInfo() {
         )}
         <div className="flex-1 pt-14">
           <h1 className="text-xl font-bold text-white leading-tight">{movie.title}</h1>
-          {tmdb?.tagline && (
-            <p className="text-white/40 text-xs italic mt-0.5">"{tmdb.tagline}"</p>
-          )}
-          {/* Meta row */}
+          {tmdb?.tagline && <p className="text-white/40 text-xs italic mt-0.5">"{tmdb.tagline}"</p>}
           <div className="flex flex-wrap gap-2 mt-2 items-center">
             {tmdb?.year && (
-              <span className="flex items-center gap-1 text-white/50 text-xs">
-                <Calendar className="w-3 h-3" />{tmdb.year}
-              </span>
+              <span className="flex items-center gap-1 text-white/50 text-xs"><Calendar className="w-3 h-3" />{tmdb.year}</span>
             )}
             {tmdb?.runtime && tmdb.runtime > 0 && (
-              <span className="flex items-center gap-1 text-white/50 text-xs">
-                <Clock className="w-3 h-3" />{Math.floor(tmdb.runtime / 60)}h {tmdb.runtime % 60}m
-              </span>
+              <span className="flex items-center gap-1 text-white/50 text-xs"><Clock className="w-3 h-3" />{Math.floor(tmdb.runtime / 60)}h {tmdb.runtime % 60}m</span>
             )}
-            {movie.audio && (
-              <span className="text-white/50 text-xs">🎵 {movie.audio}</span>
-            )}
+            {movie.audio && <span className="text-white/50 text-xs">🎵 {movie.audio}</span>}
           </div>
         </div>
       </div>
@@ -266,11 +330,9 @@ export default function TelegramInfo() {
             {tmdb.cast.map((member) => (
               <div key={member.name} className="flex-none w-16 text-center">
                 <div className="w-16 h-16 rounded-full overflow-hidden bg-white/10 mx-auto mb-1">
-                  {member.photo ? (
-                    <img src={member.photo} alt={member.name} className="w-full h-full object-cover" loading="lazy" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-white/30 text-2xl">👤</div>
-                  )}
+                  {member.photo
+                    ? <img src={member.photo} alt={member.name} className="w-full h-full object-cover" loading="lazy" />
+                    : <div className="w-full h-full flex items-center justify-center text-white/30 text-2xl">👤</div>}
                 </div>
                 <p className="text-white/80 text-[9px] leading-tight line-clamp-2 font-medium">{member.name}</p>
                 <p className="text-white/40 text-[8px] leading-tight line-clamp-1 mt-0.5 italic">{member.character}</p>
@@ -282,7 +344,7 @@ export default function TelegramInfo() {
 
       {/* All qualities list */}
       {movie.qualities.length > 1 && (
-        <div className="mx-4 mt-2">
+        <div className="mx-4 mt-2 mb-4">
           <p className="text-white/40 text-xs uppercase tracking-wide mb-3 font-medium">All Available Qualities</p>
           <div className="space-y-2">
             {movie.qualities.map((q) => (
@@ -302,6 +364,26 @@ export default function TelegramInfo() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Telegram Channel Join */}
+      <div className="mx-4 mb-5">
+        <a href={TELEGRAM_CHANNEL} target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-3 p-3.5 bg-blue-500/10 border border-blue-500/25 rounded-xl hover:bg-blue-500/20 transition-colors">
+          <div className="w-9 h-9 bg-blue-500 rounded-full flex items-center justify-center shrink-0">
+            <Send className="w-4 h-4 text-white" />
+          </div>
+          <div className="flex-1">
+            <p className="text-white text-sm font-semibold">Join our Telegram Channel</p>
+            <p className="text-white/50 text-xs">New movies posted daily — never miss a drop</p>
+          </div>
+          <span className="text-blue-400 text-xs font-bold">JOIN →</span>
+        </a>
+      </div>
+
+      {/* Similar Movies */}
+      {allMovies.length > 1 && (
+        <SimilarMovies currentId={id} currentTitle={movie.title} allMovies={allMovies} />
       )}
     </div>
   );
