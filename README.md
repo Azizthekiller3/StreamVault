@@ -76,7 +76,7 @@ artifacts/
 
 ### Prerequisites
 - GitHub account (repo already at `Azizthekiller3/StreamVault`)
-- Telegram bot token (already created: `FlixNest_bot`)
+- Telegram bot token (already created: `Moviebot123`)
 - TMDB API key (free at [themoviedb.org](https://www.themoviedb.org/settings/api))
 
 ---
@@ -236,7 +236,7 @@ All endpoints are prefixed with `/api`.
 
 ## 📮 Telegram Bot Setup
 
-Your bot `FlixNest_bot` is already created and is admin in `t.me/backupchannek`.
+Your bot `Moviebot123` is already created and is admin in `t.me/backupchannek`.
 
 **Post format** (what you type in the channel):
 ```
