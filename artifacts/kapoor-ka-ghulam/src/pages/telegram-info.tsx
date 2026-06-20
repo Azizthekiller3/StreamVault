@@ -11,7 +11,7 @@ import { getRating, setRating, addRecentlyViewed } from "@/lib/flixnest-store";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 
-const TELEGRAM_CHANNEL = "https://t.me/dbxixjdb";
+const TELEGRAM_CHANNEL = "https://t.me/backupchannek";
 
 interface TeraboxQuality { quality: string; url: string; }
 interface TelegramMovie { id: string; title: string; poster: string; audio: string; qualities: TeraboxQuality[]; messageId: number; }

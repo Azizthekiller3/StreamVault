@@ -14,7 +14,7 @@ import { detectGenres, ALL_GENRES } from "@/lib/genres";
 import { isInWatchlist, toggleWatchlist, getRecentlyViewed, clearRecentlyViewed, type RecentlyViewedItem } from "@/lib/flixnest-store";
 import { detectCollections, type Collection } from "@/lib/collections";
 
-const TELEGRAM_CHANNEL = "https://t.me/dbxixjdb";
+const TELEGRAM_CHANNEL = "https://t.me/backupchannek";
 
 interface TelegramMovie {
   id: string; title: string; poster: string;
