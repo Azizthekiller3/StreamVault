@@ -51,7 +51,10 @@ router.get("/telegram/movies/:id", async (req, res) => {
   }
   try {
     const movie = await fetchMovieById(id);
-    if (!movie) return res.status(404).json({ error: "Movie not found" });
+    if (!movie) {
+      res.status(404).json({ error: "Movie not found" });
+      return;
+    }
     res.json(movie);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch telegram movie");

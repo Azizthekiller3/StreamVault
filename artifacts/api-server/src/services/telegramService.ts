@@ -91,7 +91,8 @@ function parseAudio(lines: string[]): string {
   return [...new Set(langs)].join(" + ");
 }
 
-function htmlToLines($el: cheerio.Cheerio<cheerio.Element>, $: cheerio.CheerioAPI): string[] {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function htmlToLines($el: cheerio.Cheerio<any>, $: cheerio.CheerioAPI): string[] {
   $el.find("br").replaceWith("\n");
   const raw = $el.text();
   return raw
