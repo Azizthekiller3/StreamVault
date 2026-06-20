@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api-base";
 import { detectGenres } from "@/lib/genres";
-import { getRating, setRating, addRecentlyViewed } from "@/lib/flixnest-store";
+import { getRating, setRating, addRecentlyViewed, addDownloadHistory } from "@/lib/flixnest-store";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -238,6 +238,18 @@ export default function TelegramInfo() {
   };
 
   const active = selectedQuality ?? movie?.qualities?.[0] ?? null;
+
+  const recordDownload = (quality: string, url: string) => {
+    if (!movie) return;
+    addDownloadHistory({
+      movieId: movie.id,
+      title: movie.title,
+      poster: tmdb?.poster || movie.poster || "",
+      quality,
+      url,
+    });
+  };
+
   const localGenres = movie ? detectGenres(movie.title) : [];
   const heroImage = tmdb?.backdrop || tmdb?.poster || movie?.poster || "";
   const displayPoster = tmdb?.poster || movie?.poster || "";
@@ -317,10 +329,10 @@ export default function TelegramInfo() {
       {/* Stream / Download */}
       {active && (
         <div className="px-4 space-y-3 mb-5">
-          <a href={active.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full py-3.5 bg-primary rounded-xl text-white font-bold text-base hover:bg-primary/90 transition-colors">
+          <a href={active.url} target="_blank" rel="noopener noreferrer" onClick={() => recordDownload(active.quality, active.url)} className="flex items-center justify-center gap-3 w-full py-3.5 bg-primary rounded-xl text-white font-bold text-base hover:bg-primary/90 transition-colors">
             <Play className="w-5 h-5 fill-white" /> Stream ({active.quality})
           </a>
-          <a href={active.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full py-3.5 bg-white/10 border border-white/10 rounded-xl text-white font-bold text-base hover:bg-white/20 transition-colors">
+          <a href={active.url} target="_blank" rel="noopener noreferrer" onClick={() => recordDownload(active.quality, active.url)} className="flex items-center justify-center gap-3 w-full py-3.5 bg-white/10 border border-white/10 rounded-xl text-white font-bold text-base hover:bg-white/20 transition-colors">
             <Download className="w-5 h-5" /> Download ({active.quality})
           </a>
           <div className="flex gap-2">
@@ -364,8 +376,8 @@ export default function TelegramInfo() {
               <div key={q.quality} className="flex items-center gap-3 bg-[#1c1c1c] rounded-xl px-4 py-3">
                 <span className="text-primary font-bold text-sm w-14">{q.quality}</span>
                 <div className="flex-1 flex gap-2 justify-end">
-                  <a href={q.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/20 rounded-lg text-primary text-xs font-semibold hover:bg-primary/30 transition-colors"><Play className="w-3 h-3 fill-primary" /> Stream</a>
-                  <a href={q.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 rounded-lg text-white/70 text-xs font-semibold hover:bg-white/20 transition-colors"><Download className="w-3 h-3" /> Download</a>
+                  <a href={q.url} target="_blank" rel="noopener noreferrer" onClick={() => recordDownload(q.quality, q.url)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/20 rounded-lg text-primary text-xs font-semibold hover:bg-primary/30 transition-colors"><Play className="w-3 h-3 fill-primary" /> Stream</a>
+                  <a href={q.url} target="_blank" rel="noopener noreferrer" onClick={() => recordDownload(q.quality, q.url)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 rounded-lg text-white/70 text-xs font-semibold hover:bg-white/20 transition-colors"><Download className="w-3 h-3" /> Download</a>
                 </div>
               </div>
             ))}
