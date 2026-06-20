@@ -1,16 +1,39 @@
 import * as cheerio from "cheerio";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 
 const CHANNEL = "backupchannek";
 const CACHE_TTL = 5 * 60 * 1000;
 
+// ── Persistent seed store ──────────────────────────────────────────────────
+const DATA_DIR = join(process.cwd(), "data");
+const SEEDS_FILE = join(DATA_DIR, "seeded-movies.json");
+
+function loadSeeds(): TelegramMovie[] {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    const raw = readFileSync(SEEDS_FILE, "utf8");
+    return JSON.parse(raw) as TelegramMovie[];
+  } catch {
+    return [];
+  }
+}
+
+function saveSeeds() {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(SEEDS_FILE, JSON.stringify(seedMovies, null, 2), "utf8");
+  } catch {}
+}
+
+export const seedMovies: TelegramMovie[] = loadSeeds();
+
+// ── Cache ──────────────────────────────────────────────────────────────────
 interface CacheEntry {
   data: { movies: TelegramMovie[]; hasMore: boolean };
   ts: number;
 }
 const cache = new Map<string, CacheEntry>();
-
-// In-memory seed store — admin-injected movies for testing
-export const seedMovies: TelegramMovie[] = [];
 
 export interface TeraboxQuality {
   quality: string;
@@ -53,16 +76,14 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
 
 function parseTitle(lines: string[]): string {
   for (const line of lines) {
-    // Matches: "Title: Foo", "Title:- Foo", "🎨 Title:- Foo" etc.
     const titleMatch = line.match(/title\s*[:\-–]+\s*(.+)/i);
     if (titleMatch) {
       return titleMatch[1]
-        .replace(/^[\s\-–:]+/, "")           // strip leading dashes/colons
+        .replace(/^[\s\-–:]+/, "")
         .replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "")
         .trim();
     }
   }
-  // Fallback: first non-link, non-quality, non-noise line
   for (const line of lines) {
     if (line.match(/terabox/i) || line.match(/^\s*\d{3,4}p/i) || line.match(/^https?:/i)) continue;
     if (line.match(/backup|t\.me|subscribe|audio|quality|genre/i)) continue;
@@ -74,7 +95,6 @@ function parseTitle(lines: string[]): string {
 
 function parseAudio(lines: string[]): string {
   for (const line of lines) {
-    // Matches: "Audio: Hindi", "Audio:- Hindi (Esub)" etc.
     const m = line.match(/audio\s*[:\-–]+\s*(.+)/i);
     if (m) {
       return m[1]
@@ -95,27 +115,53 @@ function parseAudio(lines: string[]): string {
 function htmlToLines($el: cheerio.Cheerio<any>, $: cheerio.CheerioAPI): string[] {
   $el.find("br").replaceWith("\n");
   const raw = $el.text();
-  return raw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+  return raw.split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
+/** Parse a raw Telegram post (plain text) into a TelegramMovie. */
+export function parseRawPost(text: string, id: string, poster = ""): TelegramMovie | null {
+  const lines = text.split(/\n|\r/).map((l) => l.trim()).filter(Boolean);
+  const qualities = parseQualities(lines);
+  if (qualities.length === 0) return null;
+  return {
+    id,
+    title: parseTitle(lines),
+    poster,
+    audio: parseAudio(lines),
+    qualities,
+    messageId: 0,
+  };
+}
+
+/** Add or replace a movie in the persistent seed store. */
+export function addSeedMovie(movie: TelegramMovie): void {
+  const idx = seedMovies.findIndex((m) => m.id === movie.id);
+  if (idx >= 0) seedMovies.splice(idx, 1, movie);
+  else seedMovies.unshift(movie);
+  saveSeeds();
+}
+
+/** Remove a movie from the persistent seed store. */
+export function removeSeedMovie(id: string): boolean {
+  const idx = seedMovies.findIndex((m) => m.id === id);
+  if (idx < 0) return false;
+  seedMovies.splice(idx, 1);
+  saveSeeds();
+  return true;
+}
+
+// ── Channel scraper ────────────────────────────────────────────────────────
 export async function fetchChannelMovies(before?: number): Promise<{ movies: TelegramMovie[]; hasMore: boolean }> {
   const cacheKey = before ? `before-${before}` : "latest";
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL) {
-    // Merge seed movies into cached result
-    const merged = mergeSeed(cached.data.movies);
-    return { movies: merged, hasMore: cached.data.hasMore || seedMovies.length > 0 };
+    return { movies: mergeSeed(cached.data.movies), hasMore: cached.data.hasMore || seedMovies.length > 0 };
   }
 
   const url = before ? `https://t.me/s/${CHANNEL}?before=${before}` : `https://t.me/s/${CHANNEL}`;
-
   const response = await fetch(url, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "en-US,en;q=0.9",
     },
@@ -135,14 +181,12 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
 
     const textEl = $(el).find(".tgme_widget_message_text");
     const lines = htmlToLines(textEl, $);
-
     const qualities = parseQualities(lines);
     if (qualities.length === 0) return;
 
     const style =
       $(el).find(".tgme_widget_message_photo_wrap").attr("style") ||
-      $(el).find("[style*='background-image']").first().attr("style") ||
-      "";
+      $(el).find("[style*='background-image']").first().attr("style") || "";
     let posterUrl = "";
     const bgMatch = style.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
     if (bgMatch) posterUrl = bgMatch[1];
@@ -151,41 +195,28 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
       if (imgSrc) posterUrl = imgSrc;
     }
 
-    movies.push({
-      id: String(messageId),
-      title: parseTitle(lines),
-      poster: posterUrl,
-      audio: parseAudio(lines),
-      qualities,
-      messageId,
-    });
+    movies.push({ id: String(messageId), title: parseTitle(lines), poster: posterUrl, audio: parseAudio(lines), qualities, messageId });
   });
 
   const result = { movies: movies.reverse(), hasMore: movies.length > 0 };
   cache.set(cacheKey, { data: result, ts: Date.now() });
-
-  const merged = mergeSeed(result.movies);
-  return { movies: merged, hasMore: result.hasMore || seedMovies.length > 0 };
+  return { movies: mergeSeed(result.movies), hasMore: result.hasMore || seedMovies.length > 0 };
 }
 
 function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
   if (seedMovies.length === 0) return scraped;
   const scrapedIds = new Set(scraped.map((m) => m.id));
-  const newSeeds = seedMovies.filter((m) => !scrapedIds.has(m.id));
-  return [...newSeeds, ...scraped];
+  return [...seedMovies.filter((m) => !scrapedIds.has(m.id)), ...scraped];
 }
 
 export async function fetchMovieById(id: string): Promise<TelegramMovie | null> {
-  // Check seed first
   const fromSeed = seedMovies.find((m) => m.id === id);
   if (fromSeed) return fromSeed;
-
   const msgId = parseInt(id, 10);
   if (!isNaN(msgId)) {
     const { movies } = await fetchChannelMovies(msgId + 2);
     return movies.find((m) => m.id === id) ?? null;
   }
-  // Non-numeric id (seed movies with custom ids)
   const { movies } = await fetchChannelMovies();
   return movies.find((m) => m.id === id) ?? null;
 }
