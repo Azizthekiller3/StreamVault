@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { fetchChannelMovies, fetchMovieById, addSeedMovie, removeSeedMovie, seedMovies, type TelegramMovie } from "../services/telegramService.js";
+import { fetchChannelMovies, fetchMovieById, addSeedMovie, removeSeedMovie, seedMovies, parseRawPost, type TelegramMovie } from "../services/telegramService.js";
 import { enrichFromTmdb } from "../services/tmdbService.js";
 import { getComments, addComment } from "../services/commentService.js";
 import { verifySecret } from "../lib/auth.js";
@@ -215,15 +215,66 @@ router.post("/telegram/register-webhook", async (req, res) => {
   }
 });
 
+// ── Admin — Parse raw Telegram message text and add as movie ──────────────
+
+router.post("/telegram/parse-and-add", async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const { text, poster } = req.body as { text?: unknown; poster?: unknown };
+  if (typeof text !== "string" || !text.trim()) {
+    res.status(400).json({ error: "text (raw Telegram message) is required" });
+    return;
+  }
+  const id = `manual_${Date.now()}`;
+  const movie = parseRawPost(text.trim(), id, typeof poster === "string" ? poster : "");
+  if (!movie) {
+    res.status(400).json({ error: "No Terabox links found — make sure 720p/1080p links are in the text" });
+    return;
+  }
+  try {
+    const enriched = await enrichFromTmdb(movie.title);
+    if (enriched?.poster && enriched.poster !== "N/A") movie.poster = enriched.poster;
+  } catch (err) {
+    req.log.warn({ err, title: movie.title }, "TMDB enrichment failed for parse-and-add (non-fatal)");
+  }
+  addSeedMovie(movie);
+  req.log.info({ id: movie.id, title: movie.title }, "Movie added via parse-and-add");
+  res.status(201).json({ ok: true, movie });
+});
+
 // ── Webhook receiver ───────────────────────────────────────────────────────
 
 router.post("/telegram/webhook", async (req, res) => {
   res.json({ ok: true });
   try {
     const update = req.body as {
-      channel_post?: { message_id: number; text?: string; photo?: unknown[] };
+      channel_post?: {
+        message_id: number;
+        text?: string;
+        caption?: string;
+        photo?: { file_id: string }[];
+      };
     };
-    if (!update?.channel_post?.text) return;
+    const post = update?.channel_post;
+    if (!post) return;
+
+    const rawText = post.text || post.caption || "";
+    if (!rawText.trim()) return;
+
+    const movie = parseRawPost(rawText, String(post.message_id));
+    if (!movie) return;
+
+    movie.messageId = post.message_id;
+
+    // Try TMDB enrichment (best-effort)
+    try {
+      const enriched = await enrichFromTmdb(movie.title);
+      if (enriched?.poster && enriched.poster !== "N/A") movie.poster = enriched.poster;
+    } catch (err) {
+      req.log.warn({ err, title: movie.title }, "TMDB enrichment failed for webhook (non-fatal)");
+    }
+
+    addSeedMovie(movie);
+    req.log.info({ id: movie.id, title: movie.title }, "Movie added via webhook");
   } catch (err) {
     req.log.error({ err }, "Webhook processing error");
   }

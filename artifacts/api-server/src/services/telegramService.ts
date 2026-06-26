@@ -116,14 +116,15 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
 
 function parseTitle(lines: string[]): string {
   for (const line of lines) {
-    const titleMatch = line.match(/title\s*[:\-–]+\s*(.+)/i);
+    // Match "Title: ...", "Movie: ...", "Movie :- ...", "Movie Name: ..." etc.
+    const titleMatch = line.match(/(?:title|movie\s*(?:name)?)\s*[:\-–]+\s*(.+)/i);
     if (titleMatch) {
       return titleMatch[1].replace(/^[\s\-–:]+/, "").replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "").trim();
     }
   }
   for (const line of lines) {
     if (line.match(/terabox/i) || line.match(/^\s*\d{3,4}p/i) || line.match(/^https?:/i)) continue;
-    if (line.match(/backup|t\.me|subscribe|audio|quality|genre/i)) continue;
+    if (line.match(/backup|t\.me|subscribe|audio|quality|genre|join|request|group|channel|forward/i)) continue;
     const clean = line.replace(/[^\p{L}\p{N}\s\-:'.!?()#]/gu, "").trim();
     if (clean.length > 2) return clean;
   }
@@ -231,7 +232,11 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
 function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
   if (seedMovies.length === 0) return scraped;
   const scrapedIds = new Set(scraped.map((m) => m.id));
-  return [...seedMovies.filter((m) => !scrapedIds.has(m.id)), ...scraped];
+  // Seeds come first (most recently added), then scraped, deduped by id
+  const merged = [...seedMovies.filter((m) => !scrapedIds.has(m.id)), ...scraped];
+  // Final dedup pass — keep first occurrence of each id
+  const seen = new Set<string>();
+  return merged.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
 }
 
 export async function fetchMovieById(id: string): Promise<TelegramMovie | null> {

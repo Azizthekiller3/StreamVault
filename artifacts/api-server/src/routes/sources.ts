@@ -38,9 +38,13 @@ function parseSourceInput(input: string): { name: string; url: string } {
     return { name: `${author}/${repo}`, url };
   }
 
-  // Generic URL
-  const urlObj = new URL(trimmed);
-  return { name: urlObj.hostname, url: trimmed };
+  // Generic URL — guard against invalid URLs
+  try {
+    const urlObj = new URL(trimmed);
+    return { name: urlObj.hostname, url: trimmed };
+  } catch {
+    throw new Error(`Invalid URL: ${trimmed}`);
+  }
 }
 
 router.get("/sources", async (req, res) => {

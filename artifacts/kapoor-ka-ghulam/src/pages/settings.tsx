@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { Blocks, Trash2, ChevronRight, Info as InfoIcon, AlertTriangle } from "lucide-react";
+import { Blocks, Trash2, ChevronRight, Info as InfoIcon, AlertTriangle, PlusCircle, Loader2 } from "lucide-react";
 import {
   useClearHistory,
   useGetSettings,
@@ -29,12 +29,52 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { API_BASE } from "@/lib/api-base";
+
+const ADMIN_KEY = "streamvault_admin_key";
+
+function getStoredAdminKey() {
+  try { return localStorage.getItem(ADMIN_KEY) ?? ""; } catch { return ""; }
+}
 
 export default function Settings() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [extSheetOpen, setExtSheetOpen] = useState(false);
+  const [movieText, setMovieText] = useState("");
+  const [adminKey, setAdminKey] = useState(getStoredAdminKey);
+  const [isAdding, setIsAdding] = useState(false);
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
+
+  const handleAddMovie = async () => {
+    if (!movieText.trim()) return;
+    if (!adminKey.trim()) {
+      toast({ title: "Enter your admin key first", variant: "destructive" });
+      return;
+    }
+    setIsAdding(true);
+    try {
+      localStorage.setItem(ADMIN_KEY, adminKey);
+      const res = await fetch(`${API_BASE}/api/telegram/parse-and-add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-backfill-secret": adminKey },
+        body: JSON.stringify({ text: movieText }),
+      });
+      const data = await res.json() as { ok?: boolean; movie?: { title: string }; error?: string };
+      if (!res.ok || !data.ok) {
+        toast({ title: data.error ?? "Failed to add movie", variant: "destructive" });
+      } else {
+        toast({ title: `✅ Added: ${data.movie?.title}` });
+        setMovieText("");
+        queryClient.invalidateQueries({ queryKey: ["telegram-movies"] });
+      }
+    } catch {
+      toast({ title: "Network error", variant: "destructive" });
+    } finally {
+      setIsAdding(false);
+    }
+  };
 
   const clearHistory = useClearHistory({
     mutation: {
@@ -141,6 +181,53 @@ export default function Settings() {
             </div>
             <p className="text-sm text-white/40 font-mono">v1.0.0</p>
           </div>
+        </div>
+
+        {/* Add Movie (Admin) */}
+        <div className="bg-[#1c1c1c] rounded-xl overflow-hidden">
+          <button
+            onClick={() => setAddPanelOpen((v) => !v)}
+            className="w-full flex items-center gap-3 px-4 py-4 hover:bg-white/5 transition-colors"
+          >
+            <PlusCircle className="w-5 h-5 text-primary shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-white">Add Movie</p>
+              <p className="text-xs text-white/40 mt-0.5">Paste a Telegram message to add a movie</p>
+            </div>
+            <ChevronRight className={cn("w-4 h-4 text-white/30 shrink-0 transition-transform", addPanelOpen && "rotate-90")} />
+          </button>
+          {addPanelOpen && (
+            <div className="px-4 pb-4 space-y-3 border-t border-white/5">
+              <div className="mt-3">
+                <label className="text-xs text-white/40 uppercase tracking-wide mb-1.5 block">Admin Key (SESSION_SECRET)</label>
+                <input
+                  type="password"
+                  value={adminKey}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                  placeholder="Paste your SESSION_SECRET here"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-primary/60"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-white/40 uppercase tracking-wide mb-1.5 block">Telegram Message Text</label>
+                <textarea
+                  value={movieText}
+                  onChange={(e) => setMovieText(e.target.value)}
+                  placeholder={"Movie :- Peddi (2026)\n720p:- https://1024terabox.com/s/...\n1080p:- https://1024terabox.com/s/..."}
+                  rows={6}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-primary/60 resize-none font-mono text-xs"
+                />
+              </div>
+              <button
+                onClick={handleAddMovie}
+                disabled={isAdding || !movieText.trim()}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary/90 hover:bg-primary text-white rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+              >
+                {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                {isAdding ? "Adding…" : "Add Movie"}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Danger zone */}

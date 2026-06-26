@@ -319,7 +319,11 @@ export default function Home() {
           {heroItem && (
             <><p className="text-white text-xl font-bold drop-shadow mb-2 line-clamp-2 leading-tight">{heroItem.title}</p>
               <button className="flex items-center gap-2 px-6 py-2 bg-white text-black rounded-lg font-bold text-sm shadow-lg hover:bg-white/90 transition-colors"
-                onClick={() => { if (heroItem.imdbId) setLocation(`/info?imdbId=${heroItem.imdbId}`); else if (heroItem.link && activeExtId) setLocation(`/info?extId=${activeExtId}&link=${encodeURIComponent(heroItem.link)}`); }}>
+                onClick={() => {
+                  if (heroItem.imdbId) setLocation(`/info?imdbId=${heroItem.imdbId}`);
+                  else if (heroItem.link && activeExtId) setLocation(`/info?extId=${activeExtId}&link=${encodeURIComponent(heroItem.link)}`);
+                  else if (heroItem.id) setLocation(`/telegram-info?id=${heroItem.id}`);
+                }}>
                 <Play className="w-4 h-4 fill-black" /> Play
               </button></>
           )}
@@ -333,13 +337,6 @@ export default function Home() {
           className="w-full bg-white/10 border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-primary/60" />
       </form>
 
-      {!isExtLoading && !activeExtId && (
-        <div className="mx-4 mt-4 p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
-          <p className="text-white font-semibold text-base mb-1">No provider active</p>
-          <p className="text-white/50 text-sm mb-4">Install an extension from the Marketplace to start browsing content.</p>
-          <Link href="/marketplace"><Button size="sm" className="bg-primary text-white">Go to Marketplace</Button></Link>
-        </div>
-      )}
 
       {/* Movie of the Day */}
       {!isTelegramLoading && movieOfTheDay && !isSearchActive && (
