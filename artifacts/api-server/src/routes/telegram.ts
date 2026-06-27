@@ -307,4 +307,39 @@ router.get("/telegram/photo/:fileId", async (req, res) => {
 });
 
 
+
+// ── Admin: force re-enrich all poster-less movies in DB ──────────────────
+router.post('/telegram/re-enrich', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  // Clear TMDB cache so stale null results are not reused
+  const { clearTmdbCache } = await import('../services/tmdbService.js');
+  clearTmdbCache();
+
+  const { moviesTable } = await import('@workspace/db');
+  const { db } = await import('@workspace/db');
+  const { eq } = await import('drizzle-orm');
+
+  const movies = seedMovies.filter((m) => !m.poster || /telesco\.pe|cdn\.telegram|t\.me/i.test(m.poster));
+  req.log.info({ count: movies.length }, '[re-enrich] starting background re-enrichment');
+  res.json({ ok: true, queued: movies.length, message: 'Re-enrichment started in background' });
+
+  // Run in background after responding
+  void (async () => {
+    let enriched = 0;
+    for (const movie of movies) {
+      try {
+        const result = await enrichFromTmdb(movie.title, movie.audio);
+        if (result?.poster && result.poster !== 'N/A') {
+          const idx = seedMovies.findIndex((m) => m.id === movie.id);
+          if (idx >= 0) seedMovies[idx].poster = result.poster;
+          await db.update(moviesTable).set({ poster: result.poster }).where(eq(moviesTable.messageId, movie.id));
+          enriched++;
+        }
+      } catch { /* skip failures */ }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    req.log.info({ enriched, total: movies.length }, '[re-enrich] complete');
+  })();
+});
+
 export default router;
