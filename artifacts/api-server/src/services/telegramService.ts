@@ -114,7 +114,7 @@ async function ensureDbLoaded(): Promise<void> {
         (async () => {
           for (const movie of needsEnrich) {
             try {
-              const enriched = await enrichFromTmdb(movie.title);
+              const enriched = await enrichFromTmdb(movie.title, movie.audio);
               if (enriched?.poster && enriched.poster !== "N/A") {
                 await db.update(moviesTable).set({ poster: enriched.poster }).where(eq(moviesTable.messageId, movie.id));
                 const idx = seedMovies.findIndex((m) => m.id === movie.id);
@@ -126,10 +126,10 @@ async function ensureDbLoaded(): Promise<void> {
           logger.info("[telegramService] background TMDB enrichment complete");
         })().catch((err) => logger.error({ err }, "[telegramService] background enrichment error"));
       }
+      _dbInitDone = true;
     } catch (err) {
       logger.error({ err }, "[telegramService] DB init failed");
-    } finally {
-      _dbInitDone = true;
+      _dbInitPromise = null; // allow retry on next request
     }
   })();
   return _dbInitPromise;
@@ -229,7 +229,7 @@ function isTelegramCdnUrl(url: string): boolean {
 async function enrichPosterInBackground(movie: TelegramMovie): Promise<void> {
   if (movie.poster && !isTelegramCdnUrl(movie.poster)) return;
   try {
-    const enriched = await enrichFromTmdb(movie.title);
+    const enriched = await enrichFromTmdb(movie.title, movie.audio);
     if (!enriched?.poster || enriched.poster === 'N/A') return;
     const idx = seedMovies.findIndex((m) => m.id === movie.id);
     if (idx >= 0) seedMovies[idx].poster = enriched.poster;
