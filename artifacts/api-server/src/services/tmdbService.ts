@@ -1,19 +1,51 @@
+import { db } from "@workspace/db";
+import { titleOverridesTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { logger } from "../lib/logger.js";
+
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG_BASE = "https://image.tmdb.org/t/p";
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
-const MAX_YEAR_DRIFT = 5; // reject TMDB result if its year is >5 years from title's year
+const OVERRIDE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const MIN_CONFIDENCE = 35; // out of 100
+const MAX_YEAR_DRIFT = 5;
 
-interface CacheEntry {
-  data: TmdbEnrichment | null;
-  ts: number;
+// ── Language detection ─────────────────────────────────────────────────────
+const LANG_MAP: Record<string, string> = {
+  hindi: "hi",
+  english: "en",
+  tamil: "ta",
+  telugu: "te",
+  malayalam: "ml",
+  kannada: "kn",
+  korean: "ko",
+  japanese: "ja",
+  chinese: "zh",
+  punjabi: "pa",
+  bengali: "bn",
+  gujarati: "gu",
+  marathi: "mr",
+};
+
+function extractLanguage(audio?: string): string | null {
+  if (!audio) return null;
+  const lower = audio.toLowerCase();
+  for (const [lang, code] of Object.entries(LANG_MAP)) {
+    if (lower.includes(lang)) return code;
+  }
+  return null;
 }
+
+// ── In-memory caches ───────────────────────────────────────────────────────
+interface CacheEntry { data: TmdbEnrichment | null; ts: number }
 const cache = new Map<string, CacheEntry>();
 
-export interface TmdbCastMember {
-  name: string;
-  character: string;
-  photo: string;
-}
+interface OverrideCacheEntry { tmdbId: number; mediaType: string; ts: number }
+const overrideCache = new Map<string, OverrideCacheEntry>();
+let overrideCacheLoadedAt = 0;
+
+// ── Types ──────────────────────────────────────────────────────────────────
+export interface TmdbCastMember { name: string; character: string; photo: string }
 
 export interface TmdbEnrichment {
   tmdbId: number;
@@ -28,9 +60,22 @@ export interface TmdbEnrichment {
   genres: string[];
   cast: TmdbCastMember[];
   tagline: string;
+  mediaType: "movie" | "tv";
 }
 
-/** Decode common HTML entities that end up in Telegram-scraped titles. */
+export interface TmdbSearchResult {
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  title: string;
+  year: string;
+  poster: string;
+  overview: string;
+  rating: number;
+  voteCount: number;
+  originalLanguage: string;
+}
+
+// ── Title utilities ────────────────────────────────────────────────────────
 function decodeHtmlEntities(raw: string): string {
   return raw
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
@@ -45,91 +90,103 @@ function decodeHtmlEntities(raw: string): string {
 
 function cleanTitle(raw: string): string {
   return decodeHtmlEntities(raw)
-    .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265)\b/gi, "")
-    .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Korean|Japanese|Dubbed|Subtitle|Audio)\b/gi, "")
+    .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265|HIN|ENG|TAM|TEL|MAL|KAN|KOR)\b/gi, "")
+    .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Dubbed|Subtitles?|Audio|Multi|Dual)\b/gi, "")
     .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+|Part\s*\d+)\b/gi, "")
     .replace(/\(\d{4}\)/g, "")
     .replace(/\[\d{4}\]/g, "")
-    .replace(/[-_]+/g, " ")
+    .replace(/[-_.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** Extract a 4-digit year from the raw title, e.g. "(2021)" → "2021". */
 function extractYear(raw: string): string | null {
   const m = raw.match(/\b(19[5-9]\d|20[0-3]\d)\b/);
   return m ? m[1] : null;
 }
 
-/** True when the raw title looks like a TV series. */
 function looksLikeSeries(raw: string): boolean {
   return /\b(Season|Series|Web.?Series|S\d{2})\b/i.test(raw);
 }
 
-/**
- * Pick the candidate whose release year is closest to yearHint.
- * Returns null if yearHint is present and even the closest result is >MAX_YEAR_DRIFT years away
- * — indicating the entire result set is the wrong content.
- */
-function pickByYear<T extends { id: number; releaseYear: string; title: string }>(
-  items: T[],
-  yearHint: string | null,
-  searchTitle: string
-): T | null {
-  if (!items.length) return null;
-
-  // Filter by title word overlap — at least one significant word must match
-  const sigWords = searchTitle
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 3);
-
-  const overlapping = sigWords.length > 0
-    ? items.filter((r) => {
-        const rTitle = r.title.toLowerCase();
-        return sigWords.some((w) => rTitle.includes(w));
-      })
-    : items;
-
-  const pool = overlapping.length > 0 ? overlapping : items;
-
-  if (!yearHint) return pool[0];
-
-  const target = parseInt(yearHint, 10);
-  const best = pool.reduce((b, c) => {
-    const cYear = parseInt(c.releaseYear || "0", 10);
-    const bYear = parseInt(b.releaseYear || "0", 10);
-    return Math.abs(cYear - target) < Math.abs(bYear - target) ? c : b;
-  });
-
-  // Reject if even the best result is too far from the target year
-  const bestYear = parseInt(best.releaseYear || "0", 10);
-  if (bestYear > 0 && Math.abs(bestYear - target) > MAX_YEAR_DRIFT) return null;
-
-  return best;
+// ── Confidence scoring ─────────────────────────────────────────────────────
+interface ScoredCandidate {
+  id: number;
+  mediaType: "movie" | "tv";
+  title: string;
+  releaseYear: string;
+  originalLanguage: string;
+  voteCount: number;
+  score: number;
 }
 
+function scoreCandidate(
+  c: Omit<ScoredCandidate, "score">,
+  cleanedTitle: string,
+  yearHint: string | null,
+  langHint: string | null,
+  preferSeries: boolean
+): number {
+  let score = 0;
+
+  // Title word overlap (0-40 pts)
+  const sigWords = cleanedTitle.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  if (sigWords.length > 0) {
+    const rTitle = c.title.toLowerCase();
+    const overlap = sigWords.filter((w) => rTitle.includes(w)).length;
+    score += Math.round((overlap / sigWords.length) * 40);
+  } else {
+    score += 20;
+  }
+
+  // Year proximity (0-30 pts)
+  if (yearHint && c.releaseYear) {
+    const diff = Math.abs(parseInt(yearHint, 10) - parseInt(c.releaseYear, 10));
+    if (diff === 0) score += 30;
+    else if (diff <= 1) score += 22;
+    else if (diff <= 2) score += 14;
+    else if (diff <= MAX_YEAR_DRIFT) score += 6;
+    else score -= 10; // heavy penalty for large year drift
+  }
+
+  // Language match (0-20 pts)
+  if (langHint) {
+    if (c.originalLanguage === langHint) {
+      score += 20;
+    } else if (
+      // Hindi-dubbed content is usually an English original
+      langHint === "hi" && c.originalLanguage === "en"
+    ) {
+      score += 8;
+    }
+  }
+
+  // Media type preference (0-5 pts)
+  if (preferSeries && c.mediaType === "tv") score += 5;
+  else if (!preferSeries && c.mediaType === "movie") score += 5;
+
+  // Popularity / vote count (0-5 pts)
+  if (c.voteCount > 2000) score += 5;
+  else if (c.voteCount > 500) score += 3;
+  else if (c.voteCount > 50) score += 1;
+
+  return score;
+}
+
+// ── TMDB fetch helpers ─────────────────────────────────────────────────────
 async function fetchMovieDetail(id: number, apiKey: string): Promise<TmdbEnrichment> {
   const url = `${TMDB_BASE}/movie/${id}?api_key=${apiKey}&language=en-US&append_to_response=credits,external_ids`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`TMDB movie detail failed: ${res.status}`);
+  if (!res.ok) throw new Error(`TMDB movie detail ${id} failed: ${res.status}`);
   const d = await res.json() as {
-    id: number;
-    overview?: string;
-    poster_path?: string;
-    backdrop_path?: string;
-    vote_average?: number;
-    vote_count?: number;
-    release_date?: string;
-    runtime?: number;
-    tagline?: string;
-    genres?: { id: number; name: string }[];
+    id: number; overview?: string; poster_path?: string; backdrop_path?: string;
+    vote_average?: number; vote_count?: number; release_date?: string;
+    runtime?: number; tagline?: string; genres?: { name: string }[];
     credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
     external_ids?: { imdb_id?: string };
   };
   return {
-    tmdbId: d.id,
-    imdbId: d.external_ids?.imdb_id ?? null,
+    tmdbId: d.id, imdbId: d.external_ids?.imdb_id ?? null,
     overview: d.overview ?? "",
     poster: d.poster_path ? `${IMG_BASE}/w500${d.poster_path}` : "",
     backdrop: d.backdrop_path ? `${IMG_BASE}/w1280${d.backdrop_path}` : "",
@@ -140,34 +197,26 @@ async function fetchMovieDetail(id: number, apiKey: string): Promise<TmdbEnrichm
     tagline: d.tagline ?? "",
     genres: (d.genres ?? []).map((g) => g.name).slice(0, 4),
     cast: (d.credits?.cast ?? []).slice(0, 8).map((c) => ({
-      name: c.name,
-      character: c.character,
+      name: c.name, character: c.character,
       photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
     })),
+    mediaType: "movie",
   };
 }
 
 async function fetchTvDetail(id: number, apiKey: string): Promise<TmdbEnrichment> {
   const url = `${TMDB_BASE}/tv/${id}?api_key=${apiKey}&language=en-US&append_to_response=credits,external_ids`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`TMDB tv detail failed: ${res.status}`);
+  if (!res.ok) throw new Error(`TMDB tv detail ${id} failed: ${res.status}`);
   const tv = await res.json() as {
-    id: number;
-    overview?: string;
-    poster_path?: string;
-    backdrop_path?: string;
-    vote_average?: number;
-    vote_count?: number;
-    first_air_date?: string;
-    episode_run_time?: number[];
-    tagline?: string;
-    genres?: { id: number; name: string }[];
+    id: number; overview?: string; poster_path?: string; backdrop_path?: string;
+    vote_average?: number; vote_count?: number; first_air_date?: string;
+    episode_run_time?: number[]; tagline?: string; genres?: { name: string }[];
     credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
     external_ids?: { imdb_id?: string };
   };
   return {
-    tmdbId: tv.id,
-    imdbId: tv.external_ids?.imdb_id ?? null,
+    tmdbId: tv.id, imdbId: tv.external_ids?.imdb_id ?? null,
     overview: tv.overview ?? "",
     poster: tv.poster_path ? `${IMG_BASE}/w500${tv.poster_path}` : "",
     backdrop: tv.backdrop_path ? `${IMG_BASE}/w1280${tv.backdrop_path}` : "",
@@ -178,48 +227,113 @@ async function fetchTvDetail(id: number, apiKey: string): Promise<TmdbEnrichment
     tagline: tv.tagline ?? "",
     genres: (tv.genres ?? []).map((g) => g.name).slice(0, 4),
     cast: (tv.credits?.cast ?? []).slice(0, 8).map((c) => ({
-      name: c.name,
-      character: c.character,
+      name: c.name, character: c.character,
       photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
     })),
+    mediaType: "tv",
   };
 }
 
-async function searchMovie(title: string, yearHint: string | null, apiKey: string): Promise<TmdbEnrichment | null> {
-  const url = `${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
+// ── /search/multi — unified search for both movies and TV ──────────────────
+async function searchMulti(
+  title: string,
+  yearHint: string | null,
+  langHint: string | null,
+  preferSeries: boolean,
+  apiKey: string
+): Promise<TmdbEnrichment | null> {
+  const url = `${TMDB_BASE}/search/multi?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
   const res = await fetch(url);
   if (!res.ok) return null;
-  const data = await res.json() as { results?: { id: number; release_date?: string; title?: string; original_title?: string }[] };
+
+  const data = await res.json() as {
+    results?: {
+      id: number;
+      media_type: "movie" | "tv" | "person";
+      title?: string;
+      name?: string;
+      release_date?: string;
+      first_air_date?: string;
+      vote_count?: number;
+      original_language?: string;
+    }[];
+  };
+
   if (!data.results?.length) return null;
 
-  const candidates = data.results.slice(0, 5).map((r) => ({
-    id: r.id,
-    releaseYear: (r.release_date ?? "").split("-")[0] ?? "",
-    title: r.title ?? r.original_title ?? "",
-  }));
-  const best = pickByYear(candidates, yearHint, title);
-  if (!best) return null;
-  return fetchMovieDetail(best.id, apiKey);
+  const candidates: ScoredCandidate[] = [];
+  for (const r of data.results.slice(0, 10)) {
+    if (r.media_type === "person") continue;
+    const itemTitle = r.media_type === "tv" ? (r.name ?? "") : (r.title ?? "");
+    const releaseYear = r.media_type === "tv"
+      ? (r.first_air_date ?? "").split("-")[0] ?? ""
+      : (r.release_date ?? "").split("-")[0] ?? "";
+    const base = {
+      id: r.id,
+      mediaType: r.media_type,
+      title: itemTitle,
+      releaseYear,
+      originalLanguage: r.original_language ?? "",
+      voteCount: r.vote_count ?? 0,
+    } satisfies Omit<ScoredCandidate, "score">;
+    const score = scoreCandidate(base, title, yearHint, langHint, preferSeries);
+    candidates.push({ ...base, score });
+  }
+
+  if (!candidates.length) return null;
+
+  // Sort by score descending
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+
+  // Reject if confidence too low
+  if (best.score < MIN_CONFIDENCE) {
+    logger.warn({ title, score: best.score, best: best.title }, "[tmdb] Low confidence match — skipping");
+    return null;
+  }
+
+  logger.info({ title, score: best.score, matched: best.title, mediaType: best.mediaType }, "[tmdb] search/multi matched");
+
+  return best.mediaType === "tv"
+    ? fetchTvDetail(best.id, apiKey)
+    : fetchMovieDetail(best.id, apiKey);
 }
 
-async function searchTv(title: string, yearHint: string | null, apiKey: string): Promise<TmdbEnrichment | null> {
-  const url = `${TMDB_BASE}/search/tv?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const data = await res.json() as { results?: { id: number; first_air_date?: string; name?: string; original_name?: string }[] };
-  if (!data.results?.length) return null;
-
-  const candidates = data.results.slice(0, 5).map((r) => ({
-    id: r.id,
-    releaseYear: (r.first_air_date ?? "").split("-")[0] ?? "",
-    title: r.name ?? r.original_name ?? "",
-  }));
-  const best = pickByYear(candidates, yearHint, title);
-  if (!best) return null;
-  return fetchTvDetail(best.id, apiKey);
+// ── Override cache helpers ─────────────────────────────────────────────────
+async function loadOverrides(): Promise<void> {
+  if (Date.now() - overrideCacheLoadedAt < OVERRIDE_CACHE_TTL) return;
+  try {
+    const rows = await db.select().from(titleOverridesTable);
+    overrideCache.clear();
+    for (const row of rows) {
+      overrideCache.set(row.rawTitle.toLowerCase(), {
+        tmdbId: row.tmdbId,
+        mediaType: row.mediaType,
+        ts: Date.now(),
+      });
+    }
+    overrideCacheLoadedAt = Date.now();
+  } catch (err) {
+    logger.error({ err }, "[tmdb] failed to load overrides");
+  }
 }
 
-export async function enrichFromTmdb(rawTitle: string): Promise<TmdbEnrichment | null> {
+async function checkOverride(rawTitle: string, apiKey: string): Promise<TmdbEnrichment | null> {
+  await loadOverrides();
+  const override = overrideCache.get(rawTitle.toLowerCase());
+  if (!override) return null;
+  try {
+    return override.mediaType === "tv"
+      ? fetchTvDetail(override.tmdbId, apiKey)
+      : fetchMovieDetail(override.tmdbId, apiKey);
+  } catch (err) {
+    logger.error({ err, rawTitle }, "[tmdb] override fetch failed");
+    return null;
+  }
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────
+export async function enrichFromTmdb(rawTitle: string, audio?: string): Promise<TmdbEnrichment | null> {
   const key = rawTitle.toLowerCase().trim();
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
@@ -231,32 +345,125 @@ export async function enrichFromTmdb(rawTitle: string): Promise<TmdbEnrichment |
   }
 
   try {
+    // 1. Check permanent overrides first
+    const overrideResult = await checkOverride(rawTitle, apiKey);
+    if (overrideResult) {
+      cache.set(key, { data: overrideResult, ts: Date.now() });
+      return overrideResult;
+    }
+
+    // 2. Clean title + extract hints
     const yearHint = extractYear(rawTitle);
-    const seriesHint = looksLikeSeries(rawTitle);
+    const preferSeries = looksLikeSeries(rawTitle);
+    const langHint = extractLanguage(audio);
     const title = cleanTitle(rawTitle);
+
     if (!title || title.length < 2) {
       cache.set(key, { data: null, ts: Date.now() });
       return null;
     }
 
-    let result: TmdbEnrichment | null = null;
-    if (seriesHint) {
-      // Series: TV first → movie fallback
-      result = await searchTv(title, yearHint, apiKey) ?? await searchMovie(title, yearHint, apiKey);
-    } else {
-      // Movie: movie first → TV fallback
-      result = await searchMovie(title, yearHint, apiKey) ?? await searchTv(title, yearHint, apiKey);
-    }
-
+    // 3. Smart multi-search with confidence scoring
+    const result = await searchMulti(title, yearHint, langHint, preferSeries, apiKey);
     cache.set(key, { data: result, ts: Date.now() });
     return result;
-  } catch {
+  } catch (err) {
+    logger.error({ err, rawTitle }, "[tmdb] enrichFromTmdb error");
     cache.set(key, { data: null, ts: Date.now() });
     return null;
   }
 }
 
+/** Search TMDB for admin panel — returns raw results without saving */
+export async function searchTmdbForAdmin(
+  query: string,
+  year?: string,
+  type?: "movie" | "tv"
+): Promise<TmdbSearchResult[]> {
+  const apiKey = process.env.TMDB_API_KEY;
+  if (!apiKey) return [];
+
+  const yearParam = year ? `&year=${year}&first_air_date_year=${year}` : "";
+  const url = `${TMDB_BASE}/search/multi?query=${encodeURIComponent(query)}&api_key=${apiKey}&language=en-US&include_adult=false${yearParam}`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+
+  const data = await res.json() as {
+    results?: {
+      id: number;
+      media_type: "movie" | "tv" | "person";
+      title?: string;
+      name?: string;
+      release_date?: string;
+      first_air_date?: string;
+      vote_average?: number;
+      vote_count?: number;
+      original_language?: string;
+      poster_path?: string;
+      overview?: string;
+    }[];
+  };
+
+  return (data.results ?? [])
+    .filter((r) => r.media_type !== "person" && (!type || r.media_type === type))
+    .slice(0, 12)
+    .map((r) => ({
+      tmdbId: r.id,
+      mediaType: r.media_type as "movie" | "tv",
+      title: r.media_type === "tv" ? (r.name ?? "") : (r.title ?? ""),
+      year: r.media_type === "tv"
+        ? (r.first_air_date ?? "").split("-")[0] ?? ""
+        : (r.release_date ?? "").split("-")[0] ?? "",
+      poster: r.poster_path ? `${IMG_BASE}/w185${r.poster_path}` : "",
+      overview: (r.overview ?? "").slice(0, 200),
+      rating: Math.round((r.vote_average ?? 0) * 10) / 10,
+      voteCount: r.vote_count ?? 0,
+      originalLanguage: r.original_language ?? "",
+    }));
+}
+
+/** Save a permanent override: rawTitle → TMDB ID. Clears cache so next request uses new override. */
+export async function saveTitleOverride(
+  rawTitle: string,
+  tmdbId: number,
+  mediaType: "movie" | "tv"
+): Promise<void> {
+  const apiKey = process.env.TMDB_API_KEY ?? "";
+  let tmdbTitle = "";
+  let tmdbPoster = "";
+
+  try {
+    const detail = mediaType === "tv"
+      ? await fetchTvDetail(tmdbId, apiKey)
+      : await fetchMovieDetail(tmdbId, apiKey);
+    tmdbTitle = detail.poster ? rawTitle : rawTitle;
+    tmdbPoster = detail.poster;
+  } catch {}
+
+  await db
+    .insert(titleOverridesTable)
+    .values({ rawTitle, tmdbId, mediaType, tmdbTitle, tmdbPoster })
+    .onConflictDoUpdate({
+      target: titleOverridesTable.rawTitle,
+      set: { tmdbId, mediaType, tmdbTitle, tmdbPoster },
+    });
+
+  // Bust caches
+  overrideCacheLoadedAt = 0;
+  cache.delete(rawTitle.toLowerCase());
+  logger.info({ rawTitle, tmdbId, mediaType }, "[tmdb] override saved");
+}
+
+/** Delete a title override by ID */
+export async function deleteTitleOverride(id: number): Promise<void> {
+  await db.delete(titleOverridesTable).where(eq(titleOverridesTable.id, id));
+  overrideCacheLoadedAt = 0;
+  logger.info({ id }, "[tmdb] override deleted");
+}
+
 /** Flush the in-memory TMDB cache so the next call re-fetches from TMDB. */
 export function clearTmdbCache(): void {
   cache.clear();
+  overrideCache.clear();
+  overrideCacheLoadedAt = 0;
 }
