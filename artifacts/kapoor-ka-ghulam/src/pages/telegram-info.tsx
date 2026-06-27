@@ -34,7 +34,7 @@ import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { isSeries } from "./home";
 
-const TELEGRAM_CHANNEL = "https://t.me/backupchannek";
+const TELEGRAM_CHANNEL = "https://t.me/dbxixjdb";
 
 interface TeraboxQuality {
   quality: string;
