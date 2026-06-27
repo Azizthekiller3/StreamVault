@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
 import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
 import { enrichFromTmdb } from "../services/tmdbService.js";
+import { clearTmdbCache } from "../services/tmdbService.js";
 import { db, moviesTable } from "@workspace/db";
 import { isNull, eq, or } from "drizzle-orm";
 
@@ -205,6 +206,61 @@ router.post("/admin/bulk-enrich", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Bulk-enrich failed");
     res.status(500).json({ error: "Bulk-enrich failed" });
+  }
+});
+
+
+// POST /api/admin/backfill
+// Clears the TMDB in-memory cache and re-enriches ALL movies in the DB
+// so corrected TMDB matching logic is applied to every title.
+// Auth: x-backfill-secret must equal SESSION_SECRET (same as /api/telegram/parse-and-add).
+router.post("/admin/backfill", async (req, res) => {
+  const secret = req.headers["x-backfill-secret"] as string | undefined;
+  const expected = process.env.SESSION_SECRET;
+  if (!expected || secret !== expected) {
+    res.status(401).json({ error: "Unauthorized — wrong admin key" });
+    return;
+  }
+
+  // Clear in-memory TMDB cache so every title is re-fetched with fresh logic
+  clearTmdbCache();
+
+  try {
+    const rows = await db.select().from(moviesTable);
+    const total = rows.length;
+    let enriched = 0;
+    let unchanged = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      try {
+        const result = await enrichFromTmdb(row.title);
+        const newPoster = result?.poster && result.poster !== "N/A" ? result.poster : null;
+
+        if (newPoster && newPoster !== row.poster) {
+          await db
+            .update(moviesTable)
+            .set({ poster: newPoster })
+            .where(eq(moviesTable.messageId, row.messageId));
+          // Keep in-memory seed in sync
+          const idx = seedMovies.findIndex((m) => m.id === row.messageId);
+          if (idx >= 0) seedMovies[idx].poster = newPoster;
+          enriched++;
+        } else {
+          unchanged++;
+        }
+      } catch {
+        failed++;
+      }
+      // Respect TMDB rate limit (40 req / 10 s)
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    req.log.info({ enriched, unchanged, failed, total }, "Admin backfill complete");
+    res.json({ ok: true, enriched, unchanged, failed, total });
+  } catch (err) {
+    req.log.error({ err }, "Admin backfill failed");
+    res.status(500).json({ error: "Backfill failed" });
   }
 });
 
