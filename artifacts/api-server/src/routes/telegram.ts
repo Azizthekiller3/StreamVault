@@ -179,7 +179,7 @@ router.post("/telegram/register-webhook", async (req, res) => {
     res.status(400).json({ error: "webhookUrl must be a valid https URL" }); return;
   }
   try {
-    const token = process.env.BOT_API_TOKEN;
+    const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) { res.status(500).json({ error: "BOT_API_TOKEN not configured" }); return; }
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -288,7 +288,7 @@ router.get("/telegram/cdn-proxy", async (req, res) => {
 // Proxies a photo attached to a channel post, identified by its file_id.
 // The bot token never leaves the server.
 router.get("/telegram/photo/:fileId", async (req, res) => {
-  const token = process.env.BOT_API_TOKEN;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) { res.status(503).json({ error: "Bot not configured" }); return; }
   const { fileId } = req.params;
   if (!fileId || !/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) { res.status(400).send(); return; }
