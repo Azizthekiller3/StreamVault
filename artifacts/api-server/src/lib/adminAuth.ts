@@ -21,11 +21,11 @@ export function verifyAdminToken(token: string | undefined): boolean {
 }
 
 export function verifyAdminCredentials(username: string, password: string): boolean {
-  const eu = process.env.ADMIN_USERNAME ?? "";
-  const ep = process.env.ADMIN_PASSWORD ?? "";
-  if (!eu || !ep) return false;
+  // If explicit credentials are set, use them; otherwise fall back to admin / SESSION_SECRET
+  const eu = process.env.ADMIN_USERNAME || "admin";
+  const ep = process.env.ADMIN_PASSWORD || process.env.SESSION_SECRET || "";
+  if (!ep) return false;
   try {
-    // Pad to same length to avoid timing side-channels
     const pad = (a: string, b: string) =>
       [Buffer.from(a.padEnd(b.length, "\0")), Buffer.from(b.padEnd(a.length, "\0"))];
     const [ub, eb] = pad(username, eu);
@@ -36,3 +36,4 @@ export function verifyAdminCredentials(username: string, password: string): bool
     return false;
   }
 }
+
