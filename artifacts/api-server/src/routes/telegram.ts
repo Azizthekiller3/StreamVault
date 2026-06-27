@@ -180,7 +180,7 @@ router.post("/telegram/register-webhook", async (req, res) => {
   }
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
-    if (!token) { res.status(500).json({ error: "BOT_API_TOKEN not configured" }); return; }
+    if (!token) { res.status(500).json({ error: "TELEGRAM_BOT_TOKEN not configured" }); return; }
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: webhookUrl }),
