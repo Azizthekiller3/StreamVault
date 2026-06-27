@@ -93,20 +93,24 @@ function decodeHtmlEntities(raw: string): string {
 
 function cleanTitle(raw: string): string {
   return decodeHtmlEntities(raw)
-    // Strip leading playlist/sequence numbers: "3 BEN 10..." → "BEN 10..."
-    // Handles: "3 Title", "3. Title", "3) Title", "3: Title", "3 - Title"
-    .replace(/^\d+\s*[.):\-]?\s+/, "")
-    .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265|HIN|ENG|TAM|TEL|MAL|KAN|KOR)\b/gi, "")
-    .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Dubbed|Subtitles?|Audio|Multi|Dual)\b/gi, "")
-    .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+|Part\s*\d+)\b/gi, "")
-    // Strip bare 4-digit years (not in parens — those are handled below)
-    // They hurt title-overlap scoring since TMDB titles don't include years
-    .replace(/\b(19[5-9]\d|20[0-3]\d)\b/g, "")
+    // Strip single-digit playlist prefix only: "3 BEN 10" → "BEN 10"
+    // Single digit + optional separator + whitespace. Double-digit titles like
+    // "12 Angry Men", "300", "1917", "10 Cloverfield Lane" are preserved safely.
+    .replace(/^\d[.):\-]?\s+/, "")
+    // Strip (year) and [year] BEFORE bare year strip — prevents leaving orphan "()"
     .replace(/\(\d{4}\)/g, "")
     .replace(/\[\d{4}\]/g, "")
-    // Normalize separators: "BEN 10 : ALIEN SWARM" → "BEN 10 ALIEN SWARM"
+    // Quality / encode tags
+    .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265|HIN|ENG|TAM|TEL|MAL|KAN|KOR)\b/gi, "")
+    // Language words
+    .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Dubbed|Subtitles?|Audio|Multi|Dual)\b/gi, "")
+    // Episode / season patterns
+    .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+|Part\s*\d+)\b/gi, "")
+    // Bare 4-digit years (parens version already handled above so no orphan "()")
+    .replace(/\b(19[5-9]\d|20[0-3]\d)\b/g, "")
+    // Normalize separators and audio connectors
     .replace(/\s*:\s*/g, " ")
-    .replace(/\s*\bVS\b\s*/gi, " vs ")
+    .replace(/\s*[+&|]\s*/g, " ")
     .replace(/[-_.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
