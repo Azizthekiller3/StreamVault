@@ -44,6 +44,21 @@ router.get("/telegram/movies/:id", async (req, res) => {
   }
 });
 
+router.get("/telegram/search", async (req, res) => {
+  const q = (req.query["q"] as string | undefined)?.trim() ?? "";
+  if (q.length < 2) {
+    res.json({ movies: [] });
+    return;
+  }
+  try {
+    const movies = await searchMovies(q);
+    res.json({ movies });
+  } catch (err) {
+    req.log.error({ err }, "Telegram search failed");
+    res.status(500).json({ error: "Search failed" });
+  }
+});
+
 router.get("/tmdb/enrich", async (req, res) => {
   const title = req.query["title"] as string | undefined;
   if (!title?.trim()) { res.status(400).json({ error: "title query param required" }); return; }
@@ -57,7 +72,6 @@ router.get("/tmdb/enrich", async (req, res) => {
   }
 });
 
-// ── Comments — FIXED: now async to properly await PostgreSQL calls ──────────
 router.get("/comments/:movieId", async (req, res) => {
   const { movieId } = req.params;
   if (!isValidId(movieId)) { res.status(400).json({ error: "Invalid movie ID" }); return; }
@@ -122,15 +136,22 @@ router.post("/telegram/backfill", async (req, res) => {
   if (!requireSecret(req, res)) return;
   const pages = Math.min(safeInt(req.query["pages"] as string | undefined) ?? 5, 50);
   try {
-    let total = 0; let before: number | undefined;
+    let total = 0;
+    let persisted = 0;
+    let before: number | undefined;
     for (let i = 0; i < pages; i++) {
       const result = await fetchChannelMovies(before);
       total += result.movies.length;
+      // Persist each scraped movie to the DB via addSeedMovie
+      for (const movie of result.movies) {
+        addSeedMovie(movie);
+        persisted++;
+      }
       if (!result.hasMore || result.movies.length === 0) break;
       const minId = Math.min(...result.movies.map((m) => m.messageId));
       before = minId;
     }
-    res.json({ ok: true, moviesIndexed: total, pagesScraped: pages });
+    res.json({ ok: true, moviesIndexed: total, moviesPersisted: persisted, pagesScraped: pages });
   } catch (err) {
     req.log.error({ err }, "Backfill failed");
     res.status(500).json({ error: "Backfill failed" });
@@ -206,20 +227,4 @@ router.post("/telegram/webhook", async (req, res) => {
   }
 });
 
-
-router.get("/telegram/search", async (req, res) => {
-  const q = (req.query["q"] as string | undefined)?.trim() ?? "";
-  if (q.length < 2) {
-    res.json({ movies: [] );
-    return;
-  }
-  try {
-    const movies = await searchMovies(q);
-    res.json({ movies });
-  } catch (err) {
-    req.log.error({ err }, "Telegram search failed");
-    res.status(500).json({ error: "Search failed" });
-  }
-});
-
-export default router;}
+export default router;
