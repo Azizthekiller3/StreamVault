@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const OMDB_BASE = "http://www.omdbapi.com";
+const OMDB_BASE = "https://www.omdbapi.com";
 const IMG_BASE = "https://image.tmdb.org/t/p";
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const OVERRIDE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
