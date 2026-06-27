@@ -100,11 +100,15 @@ async function ensureDbLoaded(): Promise<void> {
         .select()
         .from(moviesTable)
         .orderBy(desc(moviesTable.createdAt));
-      if (seedMovies.length === 0) {
-        seedMovies.push(...rows.map(dbRowToMovie));
+      // Always merge DB rows to handle movies added via webhook before DB init
+      const existingIds = new Set(seedMovies.map((m) => m.id));
+      for (const row of rows) {
+        if (!existingIds.has(row.messageId)) {
+          seedMovies.push(dbRowToMovie(row));
+        }
       }
       // Fire-and-forget: enrich any poster-less movies from DB via TMDB in background
-      const needsEnrich = seedMovies.filter((m) => !m.poster);
+      const needsEnrich = seedMovies.filter((m) => !m.poster || isTelegramCdnUrl(m.poster));
       if (needsEnrich.length > 0) {
         logger.info({ count: needsEnrich.length }, "[telegramService] starting background TMDB poster enrichment");
         (async () => {
