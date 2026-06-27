@@ -49,7 +49,7 @@ app.use(
       // Return null (block) rather than an Error (which causes 500)
       callback(null, false);
     },
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "x-backfill-secret", "x-admin-token"],
     credentials: false,
   }),
