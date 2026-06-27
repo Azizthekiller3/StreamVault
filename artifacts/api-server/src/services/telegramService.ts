@@ -103,6 +103,25 @@ async function ensureDbLoaded(): Promise<void> {
       if (seedMovies.length === 0) {
         seedMovies.push(...rows.map(dbRowToMovie));
       }
+      // Fire-and-forget: enrich any poster-less movies from DB via TMDB in background
+      const needsEnrich = seedMovies.filter((m) => !m.poster);
+      if (needsEnrich.length > 0) {
+        logger.info({ count: needsEnrich.length }, "[telegramService] starting background TMDB poster enrichment");
+        (async () => {
+          for (const movie of needsEnrich) {
+            try {
+              const enriched = await enrichFromTmdb(movie.title);
+              if (enriched?.poster && enriched.poster !== "N/A") {
+                await db.update(moviesTable).set({ poster: enriched.poster }).where(eq(moviesTable.messageId, movie.id));
+                const idx = seedMovies.findIndex((m) => m.id === movie.id);
+                if (idx >= 0) seedMovies[idx].poster = enriched.poster;
+              }
+            } catch { /* skip failures silently */ }
+            await new Promise((r) => setTimeout(r, 150)); // respect TMDB rate limit
+          }
+          logger.info("[telegramService] background TMDB enrichment complete");
+        })().catch((err) => logger.error({ err }, "[telegramService] background enrichment error"));
+      }
     } catch (err) {
       logger.error({ err }, "[telegramService] DB init failed");
     } finally {
