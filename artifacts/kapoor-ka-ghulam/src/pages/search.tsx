@@ -4,6 +4,29 @@ import { Search as SearchIcon, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useSearchContent } from "@workspace/api-client-react";
 import { ImageWithFallback } from "@/components/image-with-fallback";
+import { useQuery } from "@tanstack/react-query";
+import { API_BASE } from "@/lib/api-base";
+
+interface TelegramMovie {
+  id: string;
+  title: string;
+  poster: string;
+  audio: string;
+  qualities: { quality: string; url: string }[];
+}
+
+function useTelegramSearch(q: string) {
+  return useQuery<{ movies: TelegramMovie[] }>({
+    queryKey: ["telegram-search", q],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/telegram/search?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error("Search failed");
+      return res.json();
+    },
+    enabled: q.length > 2,
+    staleTime: 2 * 60 * 1000,
+  });
+}
 
 export default function Search() {
   const [, setLocation] = useLocation();
@@ -20,10 +43,15 @@ export default function Search() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const { data, isLoading } = useSearchContent(
+  const { data: telegramData, isLoading: telegramLoading } = useTelegramSearch(debouncedQuery);
+  const { data: omdbData, isLoading: omdbLoading } = useSearchContent(
     { q: debouncedQuery },
     { query: { enabled: debouncedQuery.length > 2, queryKey: ["searchContent", debouncedQuery] } }
   );
+
+  const isLoading = telegramLoading || omdbLoading;
+  const telegramMovies = telegramData?.movies ?? [];
+  const omdbResults = omdbData?.results ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -51,14 +79,54 @@ export default function Search() {
           </div>
         )}
 
-        {/* Results */}
-        {!isLoading && data?.results && data.results.length > 0 && (
-          <>
-            <p className="text-white/40 text-xs mb-3">
-              {data.totalResults} results for <span className="text-white/70">"{debouncedQuery}"</span>
+        {/* Telegram library results */}
+        {!isLoading && telegramMovies.length > 0 && (
+          <div className="mb-6">
+            <p className="text-white/60 text-xs font-semibold uppercase tracking-widest mb-3">
+              📁 Your Library ({telegramMovies.length})
             </p>
             <div className="grid grid-cols-3 gap-3">
-              {data.results.map((result: any, i: number) => (
+              {telegramMovies.map((movie, i) => (
+                <motion.div
+                  key={movie.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: Math.min(i * 0.04, 0.4) }}
+                  className="cursor-pointer"
+                  onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
+                  data-testid={`telegram-result-${i}`}
+                >
+                  <div className="aspect-[2/3] rounded-lg overflow-hidden bg-white/5">
+                    <ImageWithFallback
+                      src={movie.poster}
+                      alt={movie.title}
+                      fallbackText={movie.title}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <p className="text-[11px] text-white/60 mt-1 line-clamp-1">{movie.title}</p>
+                  {movie.audio && <p className="text-[10px] text-white/30 line-clamp-1">{movie.audio}</p>}
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* OMDB results */}
+        {!isLoading && omdbResults.length > 0 && (
+          <div>
+            {telegramMovies.length > 0 && (
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest mb-3">
+                🌐 OMDB Database ({omdbData?.totalResults ?? omdbResults.length})
+              </p>
+            )}
+            {telegramMovies.length === 0 && (
+              <p className="text-white/40 text-xs mb-3">
+                {omdbData?.totalResults} results for <span className="text-white/70">"{debouncedQuery}"</span>
+              </p>
+            )}
+            <div className="grid grid-cols-3 gap-3">
+              {omdbResults.map((result: any, i: number) => (
                 <motion.div
                   key={`${result.imdbId}-${i}`}
                   initial={{ opacity: 0, scale: 0.95 }}
@@ -81,11 +149,11 @@ export default function Search() {
                 </motion.div>
               ))}
             </div>
-          </>
+          </div>
         )}
 
         {/* No results */}
-        {!isLoading && debouncedQuery.length > 2 && data?.results?.length === 0 && (
+        {!isLoading && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <SearchIcon className="w-12 h-12 text-white/20 mb-4" />
             <p className="text-white font-semibold">No results found</p>
@@ -97,10 +165,11 @@ export default function Search() {
         {debouncedQuery.length <= 2 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <SearchIcon className="w-12 h-12 text-white/20 mb-4" />
-            <p className="text-white/60 text-sm">Type at least 3 characters to search OMDB</p>
+            <p className="text-white/60 text-sm">Type at least 3 characters to search</p>
           </div>
         )}
       </div>
     </div>
   );
 }
+
