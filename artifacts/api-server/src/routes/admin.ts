@@ -1,9 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
 import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
-import { enrichFromTmdb } from "../services/tmdbService.js";
-import { clearTmdbCache } from "../services/tmdbService.js";
-import { db, moviesTable } from "@workspace/db";
+import { enrichFromTmdb, clearTmdbCache, searchTmdbForAdmin, saveTitleOverride, deleteTitleOverride } from "../services/tmdbService.js";
+import { db, moviesTable, titleOverridesTable } from "@workspace/db";
 import { isNull, eq, or } from "drizzle-orm";
 
 const router = Router();
@@ -112,7 +111,7 @@ router.delete("/admin/movies/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-// POST /api/admin/bulk-parse  { posts: string[] }  → parse all, return what succeeded
+// POST /api/admin/bulk-parse  { posts: string[] }
 router.post("/admin/bulk-parse", (req, res) => {
   if (!requireToken(req, res)) return;
   const { posts } = req.body as { posts?: unknown };
@@ -135,7 +134,7 @@ router.post("/admin/bulk-parse", (req, res) => {
   res.json({ ok: true, movies, failed, total: posts.length });
 });
 
-// POST /api/admin/bulk-save  { posts: string[] }  → parse + save all
+// POST /api/admin/bulk-save  { posts: string[] }
 router.post("/admin/bulk-save", (req, res) => {
   if (!requireToken(req, res)) return;
   const { posts } = req.body as { posts?: unknown };
@@ -160,15 +159,10 @@ router.post("/admin/bulk-save", (req, res) => {
   res.json({ ok: true, saved, failed });
 });
 
-
 // POST /api/admin/bulk-enrich
-// Enriches all DB movies that have no poster with TMDB poster lookups.
-// Returns { enriched, skipped, failed, total } — runs synchronously so the
-// caller gets a definitive result (may take up to ~1 s per movie).
 router.post("/admin/bulk-enrich", async (req, res) => {
   if (!requireToken(req, res)) return;
   try {
-    // Fetch all movies missing a poster from the DB
     const rows = await db
       .select()
       .from(moviesTable)
@@ -181,13 +175,12 @@ router.post("/admin/bulk-enrich", async (req, res) => {
 
     for (const row of rows) {
       try {
-        const result = await enrichFromTmdb(row.title);
+        const result = await enrichFromTmdb(row.title, row.audio);
         if (result?.poster && result.poster !== "N/A") {
           await db
             .update(moviesTable)
             .set({ poster: result.poster })
             .where(eq(moviesTable.messageId, row.messageId));
-          // Sync in-memory store
           const idx = seedMovies.findIndex((m) => m.id === row.messageId);
           if (idx >= 0) seedMovies[idx].poster = result.poster;
           enriched++;
@@ -197,7 +190,6 @@ router.post("/admin/bulk-enrich", async (req, res) => {
       } catch {
         failed++;
       }
-      // Brief pause to stay within TMDB rate limits (40 req / 10 s)
       await new Promise((r) => setTimeout(r, 150));
     }
 
@@ -209,11 +201,7 @@ router.post("/admin/bulk-enrich", async (req, res) => {
   }
 });
 
-
 // POST /api/admin/backfill
-// Clears the TMDB in-memory cache and re-enriches ALL movies in the DB
-// so corrected TMDB matching logic is applied to every title.
-// Auth: x-backfill-secret must equal SESSION_SECRET (same as /api/telegram/parse-and-add).
 router.post("/admin/backfill", async (req, res) => {
   const secret = req.headers["x-backfill-secret"] as string | undefined;
   const expected = process.env.SESSION_SECRET;
@@ -221,10 +209,7 @@ router.post("/admin/backfill", async (req, res) => {
     res.status(401).json({ error: "Unauthorized — wrong admin key" });
     return;
   }
-
-  // Clear in-memory TMDB cache so every title is re-fetched with fresh logic
   clearTmdbCache();
-
   try {
     const rows = await db.select().from(moviesTable);
     const total = rows.length;
@@ -234,15 +219,13 @@ router.post("/admin/backfill", async (req, res) => {
 
     for (const row of rows) {
       try {
-        const result = await enrichFromTmdb(row.title);
+        const result = await enrichFromTmdb(row.title, row.audio);
         const newPoster = result?.poster && result.poster !== "N/A" ? result.poster : null;
-
         if (newPoster && newPoster !== row.poster) {
           await db
             .update(moviesTable)
             .set({ poster: newPoster })
             .where(eq(moviesTable.messageId, row.messageId));
-          // Keep in-memory seed in sync
           const idx = seedMovies.findIndex((m) => m.id === row.messageId);
           if (idx >= 0) seedMovies[idx].poster = newPoster;
           enriched++;
@@ -252,7 +235,6 @@ router.post("/admin/backfill", async (req, res) => {
       } catch {
         failed++;
       }
-      // Respect TMDB rate limit (40 req / 10 s)
       await new Promise((r) => setTimeout(r, 150));
     }
 
@@ -261,6 +243,97 @@ router.post("/admin/backfill", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Admin backfill failed");
     res.status(500).json({ error: "Backfill failed" });
+  }
+});
+
+// ── TMDB Override endpoints ────────────────────────────────────────────────
+
+// GET /api/admin/tmdb-search?q=...&year=...&type=...
+router.get("/admin/tmdb-search", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  const q = (req.query["q"] as string | undefined)?.trim() ?? "";
+  if (q.length < 2) {
+    res.status(400).json({ error: "q must be at least 2 characters" });
+    return;
+  }
+  const year = (req.query["year"] as string | undefined)?.trim() || undefined;
+  const typeRaw = req.query["type"] as string | undefined;
+  const type = typeRaw === "movie" || typeRaw === "tv" ? typeRaw : undefined;
+
+  try {
+    const results = await searchTmdbForAdmin(q, year, type);
+    res.json({ results });
+  } catch (err) {
+    req.log.error({ err }, "Admin TMDB search failed");
+    res.status(500).json({ error: "TMDB search failed" });
+  }
+});
+
+// GET /api/admin/tmdb-overrides
+router.get("/admin/tmdb-overrides", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  try {
+    const overrides = await db.select().from(titleOverridesTable).orderBy(titleOverridesTable.createdAt);
+    res.json(overrides.map((o) => ({
+      id: o.id,
+      rawTitle: o.rawTitle,
+      tmdbId: o.tmdbId,
+      mediaType: o.mediaType,
+      tmdbTitle: o.tmdbTitle,
+      tmdbPoster: o.tmdbPoster,
+      createdAt: o.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    req.log.error({ err }, "Failed to get TMDB overrides");
+    res.status(500).json({ error: "Failed to get overrides" });
+  }
+});
+
+// POST /api/admin/tmdb-override  { rawTitle, tmdbId, mediaType }
+router.post("/admin/tmdb-override", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  const { rawTitle, tmdbId, mediaType } = req.body as {
+    rawTitle?: unknown;
+    tmdbId?: unknown;
+    mediaType?: unknown;
+  };
+  if (typeof rawTitle !== "string" || !rawTitle.trim()) {
+    res.status(400).json({ error: "rawTitle is required" });
+    return;
+  }
+  if (typeof tmdbId !== "number" || !Number.isInteger(tmdbId) || tmdbId <= 0) {
+    res.status(400).json({ error: "tmdbId must be a positive integer" });
+    return;
+  }
+  if (mediaType !== "movie" && mediaType !== "tv") {
+    res.status(400).json({ error: "mediaType must be 'movie' or 'tv'" });
+    return;
+  }
+  try {
+    await saveTitleOverride(rawTitle.trim(), tmdbId, mediaType);
+    req.log.info({ rawTitle, tmdbId, mediaType }, "Admin saved TMDB override");
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to save TMDB override");
+    res.status(500).json({ error: "Failed to save override" });
+  }
+});
+
+// DELETE /api/admin/tmdb-overrides/:id
+router.delete("/admin/tmdb-overrides/:id", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  const id = parseInt(req.params["id"] ?? "", 10);
+  if (isNaN(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
+  try {
+    await deleteTitleOverride(id);
+    req.log.info({ id }, "Admin deleted TMDB override");
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete TMDB override");
+    res.status(500).json({ error: "Failed to delete override" });
   }
 });
 
