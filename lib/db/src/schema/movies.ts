@@ -1,8 +1,8 @@
-import { pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, jsonb } from "drizzle-orm/pg-core";
 
 export const moviesTable = pgTable("telegram_movies", {
   id: serial("id").primaryKey(),
-  messageId: integer("message_id").unique().notNull(),
+  messageId: text("message_id").unique().notNull(),
   title: text("title").notNull(),
   poster: text("poster").notNull().default(""),
   posterFileId: text("poster_file_id").notNull().default(""),
@@ -13,3 +13,4 @@ export const moviesTable = pgTable("telegram_movies", {
 
 export type Movie = typeof moviesTable.$inferSelect;
 export type InsertMovie = typeof moviesTable.$inferInsert;
+
