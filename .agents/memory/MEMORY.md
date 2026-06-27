@@ -1,1 +1,1 @@
-- [StreamVault deploy](streamvault-deploy.md) — FlixNest PWA full deployment context, all bugs fixed, Koyeb+Vercel+Neon setup, next steps
+- [StreamVault deployment](streamvault-deploy.md) — full project context: GitHub repo, Koyeb backend, Vercel frontend, Neon DB, all secrets
