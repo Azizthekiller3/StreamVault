@@ -153,7 +153,6 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
     const urlMatch = line.match(URL_CHARS);
     if (!urlMatch || !urlMatch[0].toLowerCase().includes("terabox")) continue;
     const url = urlMatch[0];
-    // Standard quality labels (480p / 720p / 1080p / 4K)
     let found = false;
     for (const { label, re } of qualityPatterns) {
       if (re.test(line)) {
@@ -162,7 +161,6 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
         break;
       }
     }
-    // Episode links: E01, E02 … E999 (only when no quality label matched)
     if (!found) {
       const ep = line.match(/\bE(\d{2,3})\b/i);
       if (ep) {
@@ -217,10 +215,9 @@ export function parseRawPost(text: string, id: string, poster = ""): TelegramMov
   return { id, title: parseTitle(lines), poster, audio: parseAudio(lines), qualities, messageId: 0 };
 }
 
-
 // Check if a URL is a Telegram CDN URL (not usable in browsers due to CORS/auth)
 function isTelegramCdnUrl(url: string): boolean {
-  return /telesco\.pe|cdn\.telegram|t\.me/i/i.test(url);
+  return /telesco\.pe|cdn\.telegram|t\.me/i.test(url);
 }
 
 /** Enriches a movie's poster with TMDB in the background if the poster is
@@ -230,11 +227,9 @@ async function enrichPosterInBackground(movie: TelegramMovie): Promise<void> {
   try {
     const enriched = await enrichFromTmdb(movie.title);
     if (!enriched?.poster || enriched.poster === 'N/A') return;
-    // Update in-memory store
     const idx = seedMovies.findIndex((m) => m.id === movie.id);
     if (idx >= 0) seedMovies[idx].poster = enriched.poster;
     movie.poster = enriched.poster;
-    // Persist updated poster to DB
     void db
       .update(moviesTable)
       .set({ poster: enriched.poster })
@@ -252,7 +247,6 @@ export function addSeedMovie(movie: TelegramMovie): void {
   if (idx >= 0) seedMovies.splice(idx, 1, movie);
   else seedMovies.unshift(movie);
 
-  // Persist to PostgreSQL (fire-and-forget — never blocks the response)
   void db
     .insert(moviesTable)
     .values({
@@ -273,7 +267,6 @@ export function addSeedMovie(movie: TelegramMovie): void {
     })
     .catch((err) => logger.error({ err }, "[telegramService] addSeedMovie DB error"));
 
-  // Fire-and-forget: enrich poster via TMDB if missing or Telegram CDN URL
   void enrichPosterInBackground(movie);
 }
 
@@ -310,24 +303,39 @@ export async function fetchChannelMovies(
     ? `https://t.me/s/${channel}?before=${before}`
     : `https://t.me/s/${channel}`;
 
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
+  // ── Fetch channel HTML (graceful fallback to DB seed on any network error) ──
+  let html: string;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+    if (!response.ok) throw new Error(`Failed to fetch channel: ${response.status}`);
+    html = await response.text();
+  } catch (scrapeErr) {
+    // Channel is unreachable (network block, rate limit, private channel, etc.)
+    // Serve DB-seeded movies with cursor-based pagination instead of returning 500.
+    logger.warn({ err: scrapeErr, channel }, "[telegramService] channel scrape failed, serving from DB seed");
+    const PAGE = 20;
+    let start = 0;
+    if (before) {
+      const idx = seedMovies.findIndex((m) => m.messageId > 0 && m.messageId < before);
+      start = idx >= 0 ? idx : seedMovies.length;
+    }
+    const page = seedMovies.slice(start, start + PAGE);
+    const fallback = { movies: page, hasMore: start + PAGE < seedMovies.length };
+    // Cache with short TTL so a subsequent healthy scrape can replace it
+    cache.set(cacheKey, { data: fallback, ts: Date.now() - CACHE_TTL + 30_000 });
+    return fallback;
+  }
 
-  if (!response.ok) throw new Error(`Failed to fetch channel: ${response.status}`);
-
-  const html = await response.text();
   const $ = cheerio.load(html);
 
-  // ── Pass 1: collect every message's photo URL (keyed by messageId) ──────
-  // Many channels post the movie poster as a standalone photo message
-  // immediately before the text+links message. We build a map here so
-  // Pass 2 can look up the nearest preceding photo for each movie post.
+  // ── Pass 1: collect every message photo URL keyed by messageId ────────────
   const photoByMsgId = new Map<number, string>();
   const BG_RE = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/;
 
@@ -347,7 +355,7 @@ export async function fetchChannelMovies(
     if (imgSrc?.startsWith("http")) photoByMsgId.set(msgId, imgSrc);
   });
 
-  // ── Pass 2: extract movie posts and resolve poster from nearest photo ────
+  // ── Pass 2: extract movie posts, resolve poster from nearest preceding photo
   const movies: TelegramMovie[] = [];
 
   $(".tgme_widget_message_wrap").each((_, el) => {
@@ -361,7 +369,6 @@ export async function fetchChannelMovies(
     const qualities = parseQualities(lines);
     if (qualities.length === 0) return;
 
-    // Poster: same-message photo first, then scan back up to 10 message IDs
     let posterUrl = photoByMsgId.get(messageId) ?? "";
     if (!posterUrl) {
       for (let offset = 1; offset <= 10; offset++) {
@@ -393,8 +400,6 @@ function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
   const seedMap = new Map(seedMovies.map((m) => [m.id, m]));
   const scrapedIds = new Set(scraped.map((m) => m.id));
 
-  // For scraped movies, use the enriched poster from seedMovies when the
-  // scraped poster is missing or is a Telegram CDN URL that won't load in browsers.
   const mergedScraped = scraped.map((m) => {
     const seed = seedMap.get(m.id);
     if (seed?.poster && (!m.poster || isTelegramCdnUrl(m.poster))) {
@@ -403,7 +408,6 @@ function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
     return m;
   });
 
-  // Include seed-only movies (not present in the scraped batch)
   const seedOnly = seedMovies.filter((m) => !scrapedIds.has(m.id));
   const merged = [...seedOnly, ...mergedScraped];
   const seen = new Set<string>();
@@ -426,6 +430,7 @@ export async function fetchMovieById(id: string): Promise<TelegramMovie | null> 
   const { movies } = await fetchChannelMovies();
   return movies.find((m) => m.id === id) ?? null;
 }
+
 /** Search movies in the in-memory store by title (case-insensitive). */
 export async function searchMovies(query: string): Promise<TelegramMovie[]> {
   await ensureDbLoaded();
