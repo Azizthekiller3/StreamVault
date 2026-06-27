@@ -4,6 +4,28 @@ import { API_BASE } from "@/lib/api-base";
 interface Quality { quality: string; url: string }
 interface Movie { id: string; title: string; poster: string; audio: string; qualities: Quality[] }
 
+interface TmdbResult {
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  title: string;
+  year: string;
+  poster: string;
+  overview: string;
+  rating: number;
+  voteCount: number;
+  originalLanguage: string;
+}
+
+interface TmdbOverride {
+  id: number;
+  rawTitle: string;
+  tmdbId: number;
+  mediaType: string;
+  tmdbTitle: string;
+  tmdbPoster: string;
+  createdAt: string;
+}
+
 const TOKEN_KEY = "flixnest_admin_token";
 function getToken() { return sessionStorage.getItem(TOKEN_KEY) ?? ""; }
 function setToken(t: string) { sessionStorage.setItem(TOKEN_KEY, t); }
@@ -20,7 +42,7 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   });
 }
 
-type Tab = "add" | "bulk" | "channel";
+type Tab = "add" | "bulk" | "channel" | "fix";
 
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -54,6 +76,16 @@ export default function AdminPage() {
   const [channelInput, setChannelInput] = useState("");
   const [channelSaving, setChannelSaving] = useState(false);
   const [channelMsg, setChannelMsg] = useState("");
+
+  // Fix TMDB
+  const [fixingMovie, setFixingMovie] = useState<Movie | null>(null);
+  const [fixQuery, setFixQuery] = useState("");
+  const [fixResults, setFixResults] = useState<TmdbResult[]>([]);
+  const [fixSearching, setFixSearching] = useState(false);
+  const [fixMsg, setFixMsg] = useState("");
+  const [overrides, setOverrides] = useState<TmdbOverride[]>([]);
+  const [loadingOverrides, setLoadingOverrides] = useState(false);
+  const [fixMovieFilter, setFixMovieFilter] = useState("");
 
   useEffect(() => { if (getToken()) verifyLogin(); }, []);
 
@@ -113,7 +145,6 @@ export default function AdminPage() {
 
   // ── Bulk import ────────────────────────────────────────────────────────────
   function splitBulkText(text: string): string[] {
-    // Split on "---", "===", or 3+ blank lines
     return text.split(/\n(?:[-=]{3,})\n|\n{3,}/)
       .map(s => s.trim()).filter(s => s.length > 0);
   }
@@ -165,6 +196,82 @@ export default function AdminPage() {
     setChannelSaving(false);
   }
 
+  // ── Fix TMDB ───────────────────────────────────────────────────────────────
+  async function loadOverrides() {
+    setLoadingOverrides(true);
+    const r = await apiFetch("/api/admin/tmdb-overrides");
+    if (r.ok) { const data = await r.json() as TmdbOverride[]; setOverrides(data); }
+    setLoadingOverrides(false);
+  }
+
+  function openFixPanel(movie: Movie) {
+    setFixingMovie(movie);
+    // Preprocess the title for a better search query
+    const cleaned = movie.title
+      .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265)\b/gi, "")
+      .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Dubbed|Subtitle|Audio)\b/gi, "")
+      .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+)\b/gi, "")
+      .replace(/\(\d{4}\)/g, "")
+      .replace(/[-_.]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    setFixQuery(cleaned);
+    setFixResults([]);
+    setFixMsg("");
+  }
+
+  async function handleFixSearch() {
+    if (!fixQuery.trim()) return;
+    setFixSearching(true); setFixResults([]); setFixMsg("");
+    const year = fixQuery.match(/\b(19[5-9]\d|20[0-3]\d)\b/)?.[1] ?? "";
+    const q = fixQuery.replace(/\b(19[5-9]\d|20[0-3]\d)\b/, "").replace(/\s+/g, " ").trim();
+    const params = new URLSearchParams({ q });
+    if (year) params.set("year", year);
+    const r = await apiFetch(`/api/admin/tmdb-search?${params.toString()}`);
+    if (r.ok) {
+      const data = await r.json() as { results: TmdbResult[] };
+      setFixResults(data.results);
+      if (!data.results.length) setFixMsg("No TMDB results found. Try a shorter or different title.");
+    } else {
+      setFixMsg("Search failed. Check backend logs.");
+    }
+    setFixSearching(false);
+  }
+
+  async function handleFixSelect(result: TmdbResult) {
+    if (!fixingMovie) return;
+    setFixMsg("");
+    const r = await apiFetch("/api/admin/tmdb-override", {
+      method: "POST",
+      body: JSON.stringify({
+        rawTitle: fixingMovie.title,
+        tmdbId: result.tmdbId,
+        mediaType: result.mediaType,
+      }),
+    });
+    if (r.ok) {
+      setFixMsg(`✅ Override saved! "${fixingMovie.title}" → "${result.title}" (${result.mediaType}, ${result.year})`);
+      setFixingMovie(null);
+      setFixResults([]);
+      await loadOverrides();
+    } else {
+      const data = await r.json() as { error?: string };
+      setFixMsg(`❌ ${data.error ?? "Failed to save override"}`);
+    }
+  }
+
+  async function handleDeleteOverride(id: number, rawTitle: string) {
+    if (!confirm(`Remove override for "${rawTitle}"?`)) return;
+    const r = await apiFetch(`/api/admin/tmdb-overrides/${id}`, { method: "DELETE" });
+    if (r.ok) await loadOverrides();
+  }
+
+  // Load overrides when switching to Fix tab
+  function switchTab(t: Tab) {
+    setTab(t);
+    if (t === "fix") loadOverrides();
+  }
+
   // ── Login screen ───────────────────────────────────────────────────────────
   if (!loggedIn) return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
@@ -205,10 +312,15 @@ export default function AdminPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-800 bg-gray-900">
-        {([["add","➕ Add Movie"],["bulk","📦 Bulk Import"],["channel","📡 Channel"]] as [Tab,string][]).map(([t,label]) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-3 text-sm font-medium transition border-b-2 ${tab === t ? "border-red-500 text-white" : "border-transparent text-gray-400 hover:text-white"}`}>
+      <div className="flex border-b border-gray-800 bg-gray-900 overflow-x-auto">
+        {([
+          ["add", "➕ Add Movie"],
+          ["bulk", "📦 Bulk Import"],
+          ["channel", "📡 Channel"],
+          ["fix", "🎯 Fix TMDB"],
+        ] as [Tab, string][]).map(([t, label]) => (
+          <button key={t} onClick={() => switchTab(t)}
+            className={`px-4 py-3 text-sm font-medium transition border-b-2 whitespace-nowrap ${tab === t ? "border-red-500 text-white" : "border-transparent text-gray-400 hover:text-white"}`}>
             {label}
           </button>
         ))}
@@ -267,10 +379,7 @@ export default function AdminPage() {
               480p: https://1024terabox.com/s/aaa<br/>
               <span className="text-gray-600">---</span><br/>
               Title: Movie Two (2023)<br/>
-              720p: https://1024terabox.com/s/bbb<br/>
-              <span className="text-gray-600">---</span><br/>
-              Title: Movie Three (2022)<br/>
-              1080p: https://1024terabox.com/s/ccc
+              720p: https://1024terabox.com/s/bbb
             </div>
             <textarea rows={12} value={bulkText}
               onChange={e => { setBulkText(e.target.value); setBulkPreviews([]); setBulkErr(""); setBulkOk(""); }}
@@ -334,31 +443,171 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ── Saved Movies (always visible) ── */}
-        <div className="bg-gray-900 rounded-xl p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-white">🎞️ Saved Movies ({movies.length})</h2>
-            <button onClick={loadMovies} className="text-gray-400 hover:text-white text-sm transition">Refresh</button>
-          </div>
-          {loadingMovies && <p className="text-gray-500 text-sm">Loading…</p>}
-          {!loadingMovies && movies.length === 0 && <p className="text-gray-500 text-sm">No movies saved yet.</p>}
-          <div className="space-y-2">
-            {movies.map(m => (
-              <div key={m.id} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
-                {m.poster ? <img src={m.poster} alt="" className="w-10 h-14 object-cover rounded flex-shrink-0" />
-                  : <div className="w-10 h-14 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>}
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white text-sm truncate">{m.title}</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {m.qualities.map(q => <span key={q.quality} className="text-xs text-gray-400 bg-gray-700 px-1.5 py-0.5 rounded">{q.quality}</span>)}
+        {/* ── Fix TMDB ── */}
+        {tab === "fix" && (
+          <div className="space-y-4">
+            <div className="bg-gray-900 rounded-xl p-5 space-y-4">
+              <div>
+                <h2 className="text-base font-bold text-white">🎯 Fix Misidentified Movies</h2>
+                <p className="text-gray-400 text-sm mt-1">
+                  Select a movie, search TMDB for the correct match, and save a permanent override. The fix applies immediately and survives re-deploys.
+                </p>
+              </div>
+
+              {/* Movie selector */}
+              {fixingMovie ? (
+                <div className="bg-gray-800 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    {fixingMovie.poster
+                      ? <img src={fixingMovie.poster} alt="" className="w-12 h-16 object-cover rounded flex-shrink-0" />
+                      : <div className="w-12 h-16 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-lg">🎬</div>}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-white text-sm leading-tight truncate">{fixingMovie.title}</p>
+                      {fixingMovie.audio && <p className="text-gray-400 text-xs mt-0.5">🔊 {fixingMovie.audio}</p>}
+                    </div>
+                    <button onClick={() => { setFixingMovie(null); setFixResults([]); setFixMsg(""); }}
+                      className="text-gray-500 hover:text-white text-xl px-1 flex-shrink-0">×</button>
+                  </div>
+
+                  {/* Search input */}
+                  <div className="flex gap-2">
+                    <input
+                      value={fixQuery}
+                      onChange={e => setFixQuery(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleFixSearch()}
+                      placeholder="Search TMDB…"
+                      className="flex-1 bg-gray-700 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500 placeholder-gray-500"
+                    />
+                    <button onClick={handleFixSearch} disabled={fixSearching || !fixQuery.trim()}
+                      className="bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-semibold px-4 py-2 rounded-lg text-sm transition whitespace-nowrap">
+                      {fixSearching ? "…" : "Search"}
+                    </button>
+                  </div>
+
+                  {fixMsg && (
+                    <p className={`text-sm ${fixMsg.startsWith("✅") ? "text-green-400" : fixMsg.startsWith("❌") ? "text-red-400" : "text-yellow-400"}`}>
+                      {fixMsg}
+                    </p>
+                  )}
+
+                  {/* Results grid */}
+                  {fixResults.length > 0 && (
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      <p className="text-gray-500 text-xs">Tap the correct match to save the override:</p>
+                      {fixResults.map((r) => (
+                        <button
+                          key={`${r.mediaType}-${r.tmdbId}`}
+                          onClick={() => handleFixSelect(r)}
+                          className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 rounded-lg p-3 text-left transition"
+                        >
+                          {r.poster
+                            ? <img src={r.poster} alt="" className="w-10 h-14 object-cover rounded flex-shrink-0" />
+                            : <div className="w-10 h-14 bg-gray-600 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-white text-sm truncate">{r.title}</p>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="text-gray-400 text-xs">{r.year}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${r.mediaType === "tv" ? "bg-purple-600/30 text-purple-400" : "bg-red-600/30 text-red-400"}`}>
+                                {r.mediaType === "tv" ? "TV Show" : "Movie"}
+                              </span>
+                              {r.rating > 0 && <span className="text-yellow-400 text-xs">★ {r.rating}</span>}
+                              <span className="text-gray-500 text-xs uppercase">{r.originalLanguage}</span>
+                            </div>
+                            {r.overview && <p className="text-gray-500 text-xs mt-0.5 line-clamp-1">{r.overview}</p>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    value={fixMovieFilter}
+                    onChange={e => setFixMovieFilter(e.target.value)}
+                    placeholder="Filter movies by title…"
+                    className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500 placeholder-gray-600"
+                  />
+                  <p className="text-gray-500 text-xs">{movies.length} movies — click a row to fix its TMDB match</p>
+                  <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                    {movies
+                      .filter(m => !fixMovieFilter || m.title.toLowerCase().includes(fixMovieFilter.toLowerCase()))
+                      .map(m => (
+                        <div key={m.id} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
+                          {m.poster
+                            ? <img src={m.poster} alt="" className="w-9 h-12 object-cover rounded flex-shrink-0" />
+                            : <div className="w-9 h-12 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>}
+                          <p className="flex-1 font-medium text-white text-sm truncate min-w-0">{m.title}</p>
+                          <button
+                            onClick={() => openFixPanel(m)}
+                            className="flex-shrink-0 bg-red-600/20 hover:bg-red-600/40 border border-red-600/40 text-red-400 text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                          >
+                            Fix
+                          </button>
+                        </div>
+                      ))}
+                    {movies.length === 0 && <p className="text-gray-500 text-sm py-4 text-center">No movies loaded. Refresh the page.</p>}
                   </div>
                 </div>
-                <button onClick={() => handleDelete(m.id, m.title)}
-                  className="text-gray-500 hover:text-red-400 transition flex-shrink-0 text-xl leading-none px-1" title="Delete">×</button>
+              )}
+            </div>
+
+            {/* Saved overrides */}
+            <div className="bg-gray-900 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-bold text-white">🔒 Saved Overrides ({overrides.length})</h2>
+                <button onClick={loadOverrides} className="text-gray-400 hover:text-white text-sm transition">Refresh</button>
               </div>
-            ))}
+              {loadingOverrides && <p className="text-gray-500 text-sm">Loading…</p>}
+              {!loadingOverrides && overrides.length === 0 && (
+                <p className="text-gray-600 text-sm">No overrides yet. Use the Fix tool above to save permanent TMDB mappings.</p>
+              )}
+              <div className="space-y-2">
+                {overrides.map(o => (
+                  <div key={o.id} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
+                    {o.tmdbPoster
+                      ? <img src={o.tmdbPoster} alt="" className="w-9 h-12 object-cover rounded flex-shrink-0" />
+                      : <div className="w-9 h-12 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-400 text-xs truncate">Raw: <span className="text-white font-mono">{o.rawTitle}</span></p>
+                      <p className="text-green-400 text-xs truncate mt-0.5">→ TMDB #{o.tmdbId} ({o.mediaType})</p>
+                    </div>
+                    <button onClick={() => handleDeleteOverride(o.id, o.rawTitle)}
+                      className="text-gray-500 hover:text-red-400 transition flex-shrink-0 text-xl leading-none px-1" title="Remove override">×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* ── Saved Movies (always visible except on fix tab) ── */}
+        {tab !== "fix" && (
+          <div className="bg-gray-900 rounded-xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-white">🎞️ Saved Movies ({movies.length})</h2>
+              <button onClick={loadMovies} className="text-gray-400 hover:text-white text-sm transition">Refresh</button>
+            </div>
+            {loadingMovies && <p className="text-gray-500 text-sm">Loading…</p>}
+            {!loadingMovies && movies.length === 0 && <p className="text-gray-500 text-sm">No movies saved yet.</p>}
+            <div className="space-y-2">
+              {movies.map(m => (
+                <div key={m.id} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
+                  {m.poster ? <img src={m.poster} alt="" className="w-10 h-14 object-cover rounded flex-shrink-0" />
+                    : <div className="w-10 h-14 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white text-sm truncate">{m.title}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {m.qualities.map(q => <span key={q.quality} className="text-xs text-gray-400 bg-gray-700 px-1.5 py-0.5 rounded">{q.quality}</span>)}
+                    </div>
+                  </div>
+                  <button onClick={() => handleDelete(m.id, m.title)}
+                    className="text-gray-500 hover:text-red-400 transition flex-shrink-0 text-xl leading-none px-1" title="Delete">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
