@@ -1,4 +1,3 @@
-import { useLocation } from "wouter";
 import { Trash2, ChevronRight, Info as InfoIcon, AlertTriangle, PlusCircle, Loader2 } from "lucide-react";
 import {
   useClearHistory,
@@ -30,7 +29,6 @@ function getStoredAdminKey() {
 }
 
 export default function Settings() {
-  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [movieText, setMovieText] = useState("");
