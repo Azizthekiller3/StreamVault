@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { Search as SearchIcon, Menu, Clapperboard } from "lucide-react";
+import { Search as SearchIcon, Menu, Clapperboard, Film } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api-base";
@@ -30,6 +30,17 @@ function useTelegramMovies() {
 
 export function isSeries(title: string): boolean {
   return /\b(S\d{2}|Season|Series|E\d{2}|Episode|Web.?Series)\b/i.test(title);
+}
+
+/** Strip encoding/quality tags and return a clean human-readable title. */
+function cleanDisplayTitle(raw: string): string {
+  return raw
+    .replace(/\b(480p|720p|1080p|2160p|4[Kk]|HDR|BluRay|BDRip|BRRip|WEB.?DL|WEBRip|HDCAM|HDTC|CAM|HEVC|x\.?264|x\.?265|AAC|AC3|DD5\.1|DDP5\.1|Atmos|ESubs?|HIN|CHI|TEL|TAM|MAL|KAN|HC.?ESub|HQ|DVDRip|DVDScr|AMZN|DSNP|NF|ZEE5)\b/gi, "")
+    .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Chinese|Dual|Multi|Dubbed|Subtitles?|Audio|Line|Rip)\b/gi, "")
+    .replace(/\b(WEB|DL|HD|CAM|TS|TC|SCR|R5)\b/g, "")
+    .replace(/[-_.]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 type Category = "All" | "Bollywood" | "Hollywood" | "South Indian" | "Web Series" | "Netflix";
@@ -162,52 +173,68 @@ export default function Home() {
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-3 px-4">
-          {filtered.map((movie, i) => (
-            <motion.div
-              key={movie.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: Math.min(i * 0.03, 0.4) }}
-              className="cursor-pointer"
-              onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
-            >
-              <div
-                className="relative rounded-xl overflow-hidden"
-                style={{ aspectRatio: "2/3", background: "#1e1e1e" }}
+          {filtered.map((movie, i) => {
+            const displayTitle = cleanDisplayTitle(movie.title);
+            return (
+              <motion.div
+                key={movie.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: Math.min(i * 0.03, 0.4) }}
+                className="cursor-pointer"
+                onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
               >
-                {movie.poster ? (
-                  <img
-                    src={movie.poster}
-                    alt={movie.title}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center p-3">
+                <div
+                  className="relative rounded-xl overflow-hidden"
+                  style={{ aspectRatio: "2/3", background: "#1a1a1a" }}
+                >
+                  {movie.poster ? (
+                    <img
+                      src={movie.poster}
+                      alt={displayTitle}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                        const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+                        if (next) next.style.display = "flex";
+                      }}
+                    />
+                  ) : null}
+                  {/* Poster placeholder — shown when no poster or img fails to load */}
+                  <div
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3"
+                    style={{
+                      display: movie.poster ? "none" : "flex",
+                      background: "linear-gradient(135deg, #1f1f1f 0%, #2a1a1a 100%)",
+                    }}
+                  >
+                    <Film className="w-8 h-8 shrink-0" style={{ color: "#dc2626", opacity: 0.7 }} />
                     <p
-                      className="text-xs text-center leading-tight"
-                      style={{ color: "rgba(255,255,255,0.3)" }}
+                      className="text-center leading-snug line-clamp-4 font-medium text-xs"
+                      style={{ color: "rgba(255,255,255,0.75)" }}
                     >
-                      {movie.title}
+                      {displayTitle}
                     </p>
                   </div>
-                )}
-                {/* SERIES / MOVIE badge */}
-                <div
-                  className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white"
-                  style={{ background: isSeries(movie.title) ? "#7c3aed" : "#dc2626" }}
-                >
-                  {isSeries(movie.title) ? "SERIES" : "MOVIE"}
+
+                  {/* SERIES / MOVIE badge */}
+                  <div
+                    className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white"
+                    style={{ background: isSeries(movie.title) ? "#7c3aed" : "#dc2626" }}
+                  >
+                    {isSeries(movie.title) ? "SERIES" : "MOVIE"}
+                  </div>
                 </div>
-              </div>
-              <p
-                className="text-xs mt-1.5 leading-snug line-clamp-2 font-medium"
-                style={{ color: "rgba(255,255,255,0.85)" }}
-              >
-                {movie.title}
-              </p>
-            </motion.div>
-          ))}
+                <p
+                  className="text-xs mt-1.5 leading-snug line-clamp-2 font-medium"
+                  style={{ color: "rgba(255,255,255,0.85)" }}
+                >
+                  {displayTitle}
+                </p>
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </div>
