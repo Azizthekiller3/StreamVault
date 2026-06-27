@@ -335,4 +335,3 @@ export async function searchMovies(query: string): Promise<TelegramMovie[]> {
     .filter((m) => m.title.toLowerCase().includes(lower))
     .slice(0, 30);
 }
-
