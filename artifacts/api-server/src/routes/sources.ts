@@ -114,10 +114,12 @@ router.put("/sources/:id/default", async (req, res) => {
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    await db.update(providerSourcesTable).set({ isDefault: false });
-    await db.update(providerSourcesTable)
-      .set({ isDefault: true })
-      .where(eq(providerSourcesTable.id, parsed.data.id));
+    await db.transaction(async (tx) => {
+      await tx.update(providerSourcesTable).set({ isDefault: false });
+      await tx.update(providerSourcesTable)
+        .set({ isDefault: true })
+        .where(eq(providerSourcesTable.id, parsed.data.id));
+    });
     res.json({ success: true, message: "Default source updated" });
   } catch (err) {
     req.log.error({ err }, "Failed to set default source");
