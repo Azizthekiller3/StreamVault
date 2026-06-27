@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
+const OMDB_BASE = "http://www.omdbapi.com";
 const IMG_BASE = "https://image.tmdb.org/t/p";
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const OVERRIDE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -62,6 +63,7 @@ export interface TmdbEnrichment {
   cast: TmdbCastMember[];
   tagline: string;
   mediaType: "movie" | "tv";
+  posterSource?: "tmdb" | "omdb";
 }
 
 export interface TmdbSearchResult {
@@ -91,11 +93,20 @@ function decodeHtmlEntities(raw: string): string {
 
 function cleanTitle(raw: string): string {
   return decodeHtmlEntities(raw)
+    // Strip leading playlist/sequence numbers: "3 BEN 10..." → "BEN 10..."
+    // Handles: "3 Title", "3. Title", "3) Title", "3: Title", "3 - Title"
+    .replace(/^\d+\s*[.):\-]?\s+/, "")
     .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265|HIN|ENG|TAM|TEL|MAL|KAN|KOR)\b/gi, "")
     .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Dubbed|Subtitles?|Audio|Multi|Dual)\b/gi, "")
     .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+|Part\s*\d+)\b/gi, "")
+    // Strip bare 4-digit years (not in parens — those are handled below)
+    // They hurt title-overlap scoring since TMDB titles don't include years
+    .replace(/\b(19[5-9]\d|20[0-3]\d)\b/g, "")
     .replace(/\(\d{4}\)/g, "")
     .replace(/\[\d{4}\]/g, "")
+    // Normalize separators: "BEN 10 : ALIEN SWARM" → "BEN 10 ALIEN SWARM"
+    .replace(/\s*:\s*/g, " ")
+    .replace(/\s*\bVS\b\s*/gi, " vs ")
     .replace(/[-_.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -201,6 +212,7 @@ async function fetchMovieDetail(id: number, apiKey: string): Promise<TmdbEnrichm
       photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
     })),
     mediaType: "movie",
+    posterSource: "tmdb",
   };
 }
 
@@ -233,7 +245,53 @@ async function fetchTvDetail(id: number, apiKey: string): Promise<TmdbEnrichment
       photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
     })),
     mediaType: "tv",
+    posterSource: "tmdb",
   };
+}
+
+// ── OMDB fallback — poster + basic metadata when TMDB can't find the title ─
+async function tryOmdb(
+  cleanedTitle: string,
+  yearHint: string | null
+): Promise<TmdbEnrichment | null> {
+  const apiKey = process.env.OMDB_API_KEY;
+  if (!apiKey) return null;
+
+  const types: ("movie" | "series")[] = ["movie", "series"];
+  for (const type of types) {
+    try {
+      const params = new URLSearchParams({ apikey: apiKey, t: cleanedTitle, type });
+      if (yearHint) params.set("y", yearHint);
+      const res = await fetch(`${OMDB_BASE}/?${params}`);
+      if (!res.ok) continue;
+      const d = await res.json() as {
+        Response: string; Poster?: string; Title?: string; Year?: string;
+        Plot?: string; imdbRating?: string; Genre?: string; Runtime?: string;
+        imdbID?: string; Type?: string;
+      };
+      if (d.Response !== "True" || !d.Poster || d.Poster === "N/A") continue;
+
+      logger.info({ title: cleanedTitle, omdbTitle: d.Title, type }, "[tmdb] OMDB fallback found poster");
+      return {
+        tmdbId: 0,
+        imdbId: d.imdbID ?? null,
+        title: d.Title ?? cleanedTitle,
+        overview: d.Plot && d.Plot !== "N/A" ? d.Plot : "",
+        poster: d.Poster,
+        backdrop: "",
+        rating: parseFloat(d.imdbRating ?? "0") || 0,
+        voteCount: 0,
+        year: (d.Year ?? "").slice(0, 4),
+        runtime: parseInt((d.Runtime ?? "").replace(/\D/g, ""), 10) || 0,
+        genres: d.Genre ? d.Genre.split(", ").slice(0, 4) : [],
+        cast: [],
+        tagline: "",
+        mediaType: type === "series" ? "tv" : "movie",
+        posterSource: "omdb",
+      };
+    } catch { continue; }
+  }
+  return null;
 }
 
 // ── /search/multi — unified search for both movies and TV ──────────────────
@@ -345,6 +403,7 @@ export async function enrichFromTmdb(rawTitle: string, audio?: string): Promise<
   }
 
   try {
+    // 1. Check permanent admin overrides first
     const overrideResult = await checkOverride(rawTitle, apiKey);
     if (overrideResult) {
       cache.set(key, { data: overrideResult, ts: Date.now() });
@@ -361,7 +420,14 @@ export async function enrichFromTmdb(rawTitle: string, audio?: string): Promise<
       return null;
     }
 
-    const result = await searchMulti(title, yearHint, langHint, preferSeries, apiKey);
+    // 2. TMDB multi-search with confidence scoring
+    let result = await searchMulti(title, yearHint, langHint, preferSeries, apiKey);
+
+    // 3. OMDB fallback — if TMDB found nothing, try OMDB for poster + basic metadata
+    if (!result) {
+      result = await tryOmdb(title, yearHint);
+    }
+
     cache.set(key, { data: result, ts: Date.now() });
     return result;
   } catch (err) {
