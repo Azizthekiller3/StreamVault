@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api-base";
 import { detectGenres } from "@/lib/genres";
 import { getRating, setRating, addRecentlyViewed, addDownloadHistory } from "@/lib/flixnest-store";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { isSeries } from "./home";
 
@@ -375,7 +375,8 @@ export default function TelegramInfo() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  const searchParams = new URLSearchParams(window.location.search);
+  const search = useSearch();
+  const searchParams = new URLSearchParams(search);
   const id = searchParams.get("id") || "";
 
   const { data: movie, isLoading, isError } = useQuery({
@@ -496,7 +497,7 @@ export default function TelegramInfo() {
       <div className="flex items-center justify-between px-4 pt-5 pb-3">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => window.history.back()}
+            onClick={() => { if (window.history.length > 1) window.history.back(); else setLocation("/"); }}
             className="p-1.5 rounded-full"
             style={{ background: "rgba(255,255,255,0.08)" }}
           >
