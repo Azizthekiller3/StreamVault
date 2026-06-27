@@ -422,10 +422,37 @@ function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
   });
 }
 
+
+/** Self-heals a stale or wrong poster when a movie detail page is opened.
+ *  Uses the TMDB cache (30-min TTL), so this is cheap after the first call.
+ *  If enrichment returns a DIFFERENT poster, seedMovies + DB are updated silently.
+ */
+async function selfHealPoster(movie: TelegramMovie): Promise<void> {
+  try {
+    const enriched = await enrichFromTmdb(movie.title, movie.audio);
+    if (!enriched?.poster || enriched.poster === 'N/A') return;
+    if (enriched.poster === movie.poster) return; // already correct
+    const idx = seedMovies.findIndex((m) => m.id === movie.id);
+    if (idx >= 0) seedMovies[idx].poster = enriched.poster;
+    void db
+      .update(moviesTable)
+      .set({ poster: enriched.poster })
+      .where(eq(moviesTable.messageId, movie.id))
+      .catch((err) => logger.error({ err }, '[telegramService] selfHealPoster DB update failed'));
+    logger.info({ id: movie.id, title: movie.title, old: movie.poster?.slice(0,60), new: enriched.poster?.slice(0,60) }, '[telegramService] poster self-healed on detail fetch');
+  } catch { /* ignore silently */ }
+}
+
 export async function fetchMovieById(id: string): Promise<TelegramMovie | null> {
   await ensureDbLoaded();
   const fromSeed = seedMovies.find((m) => m.id === id);
-  if (fromSeed) return fromSeed;
+  if (fromSeed) {
+    // Background self-heal: if enrichment returns a better poster, update DB silently.
+    // This fixes stale/wrong posters stored before cleanTitle bug was fixed.
+    // Uses TMDB cache (30-min TTL) so it's cheap after the first call.
+    void selfHealPoster(fromSeed);
+    return fromSeed;
+  }
   const msgId = parseInt(id, 10);
   if (!isNaN(msgId)) {
     const { movies } = await fetchChannelMovies(msgId + 2);
