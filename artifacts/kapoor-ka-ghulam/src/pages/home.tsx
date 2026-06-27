@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api-base";
 
-const TELEGRAM_CHANNEL = "https://t.me/dbxixjdb";
+const TELEGRAM_CHANNEL = "https://t.me/backupchannek";
 
 interface TelegramMovie {
   id: string;
