@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
+import { verifySecret } from "../lib/auth.js";
 import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
 import { enrichFromTmdb, clearTmdbCache, searchTmdbForAdmin, saveTitleOverride, deleteTitleOverride } from "../services/tmdbService.js";
 import { db, moviesTable, titleOverridesTable } from "@workspace/db";
-import { isNull, eq, or } from "drizzle-orm";
+import { isNull, eq, or, like } from "drizzle-orm";
 
 const router = Router();
 
@@ -166,7 +167,13 @@ router.post("/admin/bulk-enrich", async (req, res) => {
     const rows = await db
       .select()
       .from(moviesTable)
-      .where(or(isNull(moviesTable.poster), eq(moviesTable.poster, "")));
+      .where(or(
+      isNull(moviesTable.poster),
+      eq(moviesTable.poster, ""),
+      like(moviesTable.poster, "%telesco.pe%"),
+      like(moviesTable.poster, "%cdn.telegram%"),
+      like(moviesTable.poster, "%t.me/%")
+    ));
 
     const total = rows.length;
     let enriched = 0;
@@ -203,9 +210,7 @@ router.post("/admin/bulk-enrich", async (req, res) => {
 
 // POST /api/admin/backfill
 router.post("/admin/backfill", async (req, res) => {
-  const secret = req.headers["x-backfill-secret"] as string | undefined;
-  const expected = process.env.SESSION_SECRET;
-  if (!expected || secret !== expected) {
+  if (!verifySecret(req.headers["x-backfill-secret"] as string | undefined)) {
     res.status(401).json({ error: "Unauthorized — wrong admin key" });
     return;
   }
