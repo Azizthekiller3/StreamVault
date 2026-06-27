@@ -1,12 +1,13 @@
 import * as cheerio from "cheerio";
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
+import { db, moviesTable } from "@workspace/db";
+import { eq, desc } from "drizzle-orm";
 
 const CACHE_TTL = 5 * 60 * 1000;
 
-// ── Persistent data directory ──────────────────────────────────────────────
+// ── Persistent config directory (channel name) ─────────────────────────────
 const DATA_DIR = join(process.cwd(), "data");
-const SEEDS_FILE = join(DATA_DIR, "seeded-movies.json");
 const CONFIG_FILE = join(DATA_DIR, "config.json");
 
 function ensureDir() {
@@ -45,37 +46,10 @@ export function getChannel(): string {
 export function setChannel(username: string): void {
   appConfig.channel = username.replace(/^@/, "").trim();
   saveConfig(appConfig);
-  // Bust cache so next request fetches from new channel
   cache.clear();
 }
 
-// ── Persistent seed store ──────────────────────────────────────────────────
-function loadSeeds(): TelegramMovie[] {
-  try {
-    ensureDir();
-    const raw = readFileSync(SEEDS_FILE, "utf8");
-    return JSON.parse(raw) as TelegramMovie[];
-  } catch {
-    return [];
-  }
-}
-
-function saveSeeds() {
-  try {
-    ensureDir();
-    writeFileSync(SEEDS_FILE, JSON.stringify(seedMovies, null, 2), "utf8");
-  } catch {}
-}
-
-export const seedMovies: TelegramMovie[] = loadSeeds();
-
-// ── Cache ──────────────────────────────────────────────────────────────────
-interface CacheEntry {
-  data: { movies: TelegramMovie[]; hasMore: boolean };
-  ts: number;
-}
-const cache = new Map<string, CacheEntry>();
-
+// ── Types ──────────────────────────────────────────────────────────────────
 export interface TeraboxQuality {
   quality: string;
   url: string;
@@ -90,6 +64,60 @@ export interface TelegramMovie {
   messageId: number;
 }
 
+// ── In-memory seed store (DB-backed on Koyeb) ──────────────────────────────
+export const seedMovies: TelegramMovie[] = [];
+
+function dbRowToMovie(row: {
+  messageId: string;
+  title: string;
+  poster: string;
+  audio: string;
+  qualities: unknown;
+}): TelegramMovie {
+  const qualities = Array.isArray(row.qualities) ? (row.qualities as TeraboxQuality[]) : [];
+  return {
+    id: row.messageId,
+    title: row.title,
+    poster: row.poster ?? "",
+    audio: row.audio ?? "",
+    qualities,
+    messageId: parseInt(row.messageId, 10) || 0,
+  };
+}
+
+// Lazy DB init — runs once on first movie request
+let _dbInitDone = false;
+let _dbInitPromise: Promise<void> | null = null;
+
+async function ensureDbLoaded(): Promise<void> {
+  if (_dbInitDone) return;
+  if (_dbInitPromise) return _dbInitPromise;
+  _dbInitPromise = (async () => {
+    try {
+      const rows = await db
+        .select()
+        .from(moviesTable)
+        .orderBy(desc(moviesTable.createdAt));
+      if (seedMovies.length === 0) {
+        seedMovies.push(...rows.map(dbRowToMovie));
+      }
+    } catch (err) {
+      console.error("[telegramService] DB init failed:", err);
+    } finally {
+      _dbInitDone = true;
+    }
+  })();
+  return _dbInitPromise;
+}
+
+// ── Cache ──────────────────────────────────────────────────────────────────
+interface CacheEntry {
+  data: { movies: TelegramMovie[]; hasMore: boolean };
+  ts: number;
+}
+const cache = new Map<string, CacheEntry>();
+
+// ── Parsers ────────────────────────────────────────────────────────────────
 const URL_CHARS = /https?:\/\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%\-]+/;
 
 function parseQualities(lines: string[]): TeraboxQuality[] {
@@ -116,7 +144,6 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
 
 function parseTitle(lines: string[]): string {
   for (const line of lines) {
-    // Match "Title: ...", "Movie: ...", "Movie :- ...", "Movie Name: ..." etc.
     const titleMatch = line.match(/(?:title|movie\s*(?:name)?)\s*[:\-–]+\s*(.+)/i);
     if (titleMatch) {
       return titleMatch[1].replace(/^[\s\-–:]+/, "").replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "").trim();
@@ -158,36 +185,71 @@ export function parseRawPost(text: string, id: string, poster = ""): TelegramMov
   return { id, title: parseTitle(lines), poster, audio: parseAudio(lines), qualities, messageId: 0 };
 }
 
-/** Add or replace a movie in the persistent seed store. */
+/** Add or replace a movie in the in-memory store and persist to DB. */
 export function addSeedMovie(movie: TelegramMovie): void {
   const idx = seedMovies.findIndex((m) => m.id === movie.id);
   if (idx >= 0) seedMovies.splice(idx, 1, movie);
   else seedMovies.unshift(movie);
-  saveSeeds();
+
+  // Persist to PostgreSQL (fire-and-forget — never blocks the response)
+  void db
+    .insert(moviesTable)
+    .values({
+      messageId: movie.id,
+      title: movie.title,
+      poster: movie.poster,
+      audio: movie.audio,
+      qualities: movie.qualities as unknown as string,
+    })
+    .onConflictDoUpdate({
+      target: moviesTable.messageId,
+      set: {
+        title: movie.title,
+        poster: movie.poster,
+        audio: movie.audio,
+        qualities: movie.qualities as unknown as string,
+      },
+    })
+    .catch((err) => console.error("[telegramService] addSeedMovie DB error:", err));
 }
 
-/** Remove a movie from the persistent seed store. */
+/** Remove a movie from the in-memory store and delete from DB. */
 export function removeSeedMovie(id: string): boolean {
   const idx = seedMovies.findIndex((m) => m.id === id);
   if (idx < 0) return false;
   seedMovies.splice(idx, 1);
-  saveSeeds();
+
+  void db
+    .delete(moviesTable)
+    .where(eq(moviesTable.messageId, id))
+    .catch((err) => console.error("[telegramService] removeSeedMovie DB error:", err));
   return true;
 }
 
 // ── Channel scraper ────────────────────────────────────────────────────────
-export async function fetchChannelMovies(before?: number): Promise<{ movies: TelegramMovie[]; hasMore: boolean }> {
+export async function fetchChannelMovies(
+  before?: number
+): Promise<{ movies: TelegramMovie[]; hasMore: boolean }> {
+  await ensureDbLoaded();
+
   const channel = getChannel();
   const cacheKey = before ? `${channel}-before-${before}` : `${channel}-latest`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL) {
-    return { movies: mergeSeed(cached.data.movies), hasMore: cached.data.hasMore || seedMovies.length > 0 };
+    return {
+      movies: mergeSeed(cached.data.movies),
+      hasMore: cached.data.hasMore || seedMovies.length > 0,
+    };
   }
 
-  const url = before ? `https://t.me/s/${channel}?before=${before}` : `https://t.me/s/${channel}`;
+  const url = before
+    ? `https://t.me/s/${channel}?before=${before}`
+    : `https://t.me/s/${channel}`;
+
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       Accept: "text/html,application/xhtml+xml",
       "Accept-Language": "en-US,en;q=0.9",
     },
@@ -212,7 +274,8 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
 
     const style =
       $(el).find(".tgme_widget_message_photo_wrap").attr("style") ||
-      $(el).find("[style*='background-image']").first().attr("style") || "";
+      $(el).find("[style*='background-image']").first().attr("style") ||
+      "";
     let posterUrl = "";
     const bgMatch = style.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
     if (bgMatch) posterUrl = bgMatch[1];
@@ -221,25 +284,38 @@ export async function fetchChannelMovies(before?: number): Promise<{ movies: Tel
       if (imgSrc) posterUrl = imgSrc;
     }
 
-    movies.push({ id: String(messageId), title: parseTitle(lines), poster: posterUrl, audio: parseAudio(lines), qualities, messageId });
+    movies.push({
+      id: String(messageId),
+      title: parseTitle(lines),
+      poster: posterUrl,
+      audio: parseAudio(lines),
+      qualities,
+      messageId,
+    });
   });
 
   const result = { movies: movies.reverse(), hasMore: movies.length > 0 };
   cache.set(cacheKey, { data: result, ts: Date.now() });
-  return { movies: mergeSeed(result.movies), hasMore: result.hasMore || seedMovies.length > 0 };
+  return {
+    movies: mergeSeed(result.movies),
+    hasMore: result.hasMore || seedMovies.length > 0,
+  };
 }
 
 function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
   if (seedMovies.length === 0) return scraped;
   const scrapedIds = new Set(scraped.map((m) => m.id));
-  // Seeds come first (most recently added), then scraped, deduped by id
   const merged = [...seedMovies.filter((m) => !scrapedIds.has(m.id)), ...scraped];
-  // Final dedup pass — keep first occurrence of each id
   const seen = new Set<string>();
-  return merged.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+  return merged.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
 }
 
 export async function fetchMovieById(id: string): Promise<TelegramMovie | null> {
+  await ensureDbLoaded();
   const fromSeed = seedMovies.find((m) => m.id === id);
   if (fromSeed) return fromSeed;
   const msgId = parseInt(id, 10);
