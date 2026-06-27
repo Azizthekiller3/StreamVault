@@ -1,4 +1,4 @@
-import { Trash2, ChevronRight, Info as InfoIcon, AlertTriangle, PlusCircle, Loader2 } from "lucide-react";
+import { Trash2, ChevronRight, Info as InfoIcon, AlertTriangle, PlusCircle, Loader2, RefreshCw } from "lucide-react";
 import {
   useClearHistory,
   useGetStats,
@@ -28,6 +28,13 @@ function getStoredAdminKey() {
   try { return localStorage.getItem(ADMIN_KEY) ?? ""; } catch { return ""; }
 }
 
+interface BackfillResult {
+  enriched: number;
+  unchanged: number;
+  failed: number;
+  total: number;
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -35,6 +42,9 @@ export default function Settings() {
   const [adminKey, setAdminKey] = useState(getStoredAdminKey);
   const [isAdding, setIsAdding] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
+  const [backfillPanelOpen, setBackfillPanelOpen] = useState(false);
+  const [isBackfilling, setIsBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
 
   const handleAddMovie = async () => {
     if (!movieText.trim()) return;
@@ -62,6 +72,34 @@ export default function Settings() {
       toast({ title: "Network error", variant: "destructive" });
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const handleBackfill = async () => {
+    if (!adminKey.trim()) {
+      toast({ title: "Enter your admin key first", variant: "destructive" });
+      return;
+    }
+    setIsBackfilling(true);
+    setBackfillResult(null);
+    try {
+      localStorage.setItem(ADMIN_KEY, adminKey);
+      const res = await fetch(`${API_BASE}/api/admin/backfill`, {
+        method: "POST",
+        headers: { "x-backfill-secret": adminKey },
+      });
+      const data = await res.json() as BackfillResult & { error?: string };
+      if (!res.ok) {
+        toast({ title: data.error ?? "Backfill failed", variant: "destructive" });
+      } else {
+        setBackfillResult(data);
+        toast({ title: `✅ Done — ${data.enriched} updated, ${data.unchanged} unchanged` });
+        queryClient.invalidateQueries({ queryKey: ["telegram-movies"] });
+      }
+    } catch {
+      toast({ title: "Network error", variant: "destructive" });
+    } finally {
+      setIsBackfilling(false);
     }
   };
 
@@ -158,6 +196,63 @@ export default function Settings() {
               >
                 {isAdding ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
                 {isAdding ? "Adding…" : "Add Movie"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Re-enrich TMDB Data (Admin) */}
+        <div className="bg-[#1c1c1c] rounded-xl overflow-hidden">
+          <button
+            onClick={() => setBackfillPanelOpen((v) => !v)}
+            className="w-full flex items-center gap-3 px-4 py-4 hover:bg-white/5 transition-colors"
+          >
+            <RefreshCw className="w-5 h-5 text-primary shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium text-white">Fix Movie Info</p>
+              <p className="text-xs text-white/40 mt-0.5">Re-fetch correct TMDB posters &amp; data for all movies</p>
+            </div>
+            <ChevronRight className={cn("w-4 h-4 text-white/30 shrink-0 transition-transform", backfillPanelOpen && "rotate-90")} />
+          </button>
+          {backfillPanelOpen && (
+            <div className="px-4 pb-4 space-y-3 border-t border-white/5">
+              <p className="text-xs text-white/40 mt-3 leading-relaxed">
+                Clears cached TMDB data and re-matches every movie using the improved year + series detection.
+                Use this after a mis-identified movie is found (e.g. wrong poster / wrong plot).
+                This may take a minute or two depending on how many movies are stored.
+              </p>
+              <div>
+                <label className="text-xs text-white/40 uppercase tracking-wide mb-1.5 block">Admin Key (SESSION_SECRET)</label>
+                <input
+                  type="password"
+                  value={adminKey}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                  placeholder="Paste your SESSION_SECRET here"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-primary/60"
+                />
+              </div>
+              {backfillResult && (
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  {[
+                    { label: "Total", value: backfillResult.total, color: "text-white" },
+                    { label: "Updated", value: backfillResult.enriched, color: "text-green-400" },
+                    { label: "Same", value: backfillResult.unchanged, color: "text-white/50" },
+                    { label: "Failed", value: backfillResult.failed, color: "text-red-400" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="bg-white/5 rounded-lg p-2">
+                      <p className={`text-lg font-bold ${color}`}>{value}</p>
+                      <p className="text-[9px] text-white/30 uppercase tracking-wide">{label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={handleBackfill}
+                disabled={isBackfilling}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary/90 hover:bg-primary text-white rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+              >
+                {isBackfilling ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                {isBackfilling ? "Re-enriching… (please wait)" : "Re-enrich All Movies"}
               </button>
             </div>
           )}
