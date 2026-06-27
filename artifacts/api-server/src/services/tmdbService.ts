@@ -255,3 +255,8 @@ export async function enrichFromTmdb(rawTitle: string): Promise<TmdbEnrichment |
     return null;
   }
 }
+
+/** Flush the in-memory TMDB cache so the next call re-fetches from TMDB. */
+export function clearTmdbCache(): void {
+  cache.clear();
+}
