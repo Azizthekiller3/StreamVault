@@ -304,6 +304,31 @@ export async function fetchChannelMovies(
 
   const html = await response.text();
   const $ = cheerio.load(html);
+
+  // ── Pass 1: collect every message's photo URL (keyed by messageId) ──────
+  // Many channels post the movie poster as a standalone photo message
+  // immediately before the text+links message. We build a map here so
+  // Pass 2 can look up the nearest preceding photo for each movie post.
+  const photoByMsgId = new Map<number, string>();
+  const BG_RE = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/;
+
+  $(".tgme_widget_message_wrap").each((_, el) => {
+    const msgEl = $(el).find(".tgme_widget_message");
+    const dataPost = msgEl.attr("data-post") || "";
+    const msgId = parseInt(dataPost.split("/").pop() || "0", 10);
+    if (!msgId) return;
+
+    const style =
+      $(el).find(".tgme_widget_message_photo_wrap").attr("style") ||
+      $(el).find("[style*='background-image']").first().attr("style") ||
+      "";
+    const bgM = style.match(BG_RE);
+    if (bgM) { photoByMsgId.set(msgId, bgM[1]); return; }
+    const imgSrc = $(el).find("img:not([src^='data'])").first().attr("src");
+    if (imgSrc?.startsWith("http")) photoByMsgId.set(msgId, imgSrc);
+  });
+
+  // ── Pass 2: extract movie posts and resolve poster from nearest photo ────
   const movies: TelegramMovie[] = [];
 
   $(".tgme_widget_message_wrap").each((_, el) => {
@@ -317,16 +342,13 @@ export async function fetchChannelMovies(
     const qualities = parseQualities(lines);
     if (qualities.length === 0) return;
 
-    const style =
-      $(el).find(".tgme_widget_message_photo_wrap").attr("style") ||
-      $(el).find("[style*='background-image']").first().attr("style") ||
-      "";
-    let posterUrl = "";
-    const bgMatch = style.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
-    if (bgMatch) posterUrl = bgMatch[1];
+    // Poster: same-message photo first, then scan back up to 10 message IDs
+    let posterUrl = photoByMsgId.get(messageId) ?? "";
     if (!posterUrl) {
-      const imgSrc = $(el).find("img").first().attr("src");
-      if (imgSrc) posterUrl = imgSrc;
+      for (let offset = 1; offset <= 10; offset++) {
+        const candidate = photoByMsgId.get(messageId - offset);
+        if (candidate) { posterUrl = candidate; break; }
+      }
     }
 
     movies.push({
