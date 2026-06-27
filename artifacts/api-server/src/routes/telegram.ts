@@ -315,8 +315,7 @@ router.post('/telegram/re-enrich', async (req, res) => {
   const { clearTmdbCache } = await import('../services/tmdbService.js');
   clearTmdbCache();
 
-  const { moviesTable } = await import('@workspace/db');
-  const { db } = await import('@workspace/db');
+  const { moviesTable, db } = await import('@workspace/db');
   const { eq } = await import('drizzle-orm');
 
   const movies = seedMovies.filter((m) => !m.poster || /telesco\.pe|cdn\.telegram|t\.me/i.test(m.poster));
