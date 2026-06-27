@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { db, moviesTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
+import { logger } from "../lib/logger.js";
 
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -102,7 +103,7 @@ async function ensureDbLoaded(): Promise<void> {
         seedMovies.push(...rows.map(dbRowToMovie));
       }
     } catch (err) {
-      console.error("[telegramService] DB init failed:", err);
+      logger.error({ err }, "[telegramService] DB init failed");
     } finally {
       _dbInitDone = true;
     }
@@ -221,7 +222,7 @@ export function addSeedMovie(movie: TelegramMovie): void {
         qualities: movie.qualities as unknown as string,
       },
     })
-    .catch((err) => console.error("[telegramService] addSeedMovie DB error:", err));
+    .catch((err) => logger.error({ err }, "[telegramService] addSeedMovie DB error"));
 }
 
 /** Remove a movie from the in-memory store and delete from DB. */
@@ -233,7 +234,7 @@ export function removeSeedMovie(id: string): boolean {
   void db
     .delete(moviesTable)
     .where(eq(moviesTable.messageId, id))
-    .catch((err) => console.error("[telegramService] removeSeedMovie DB error:", err));
+    .catch((err) => logger.error({ err }, "[telegramService] removeSeedMovie DB error"));
   return true;
 }
 
