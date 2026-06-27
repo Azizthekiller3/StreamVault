@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { SearchContentQueryParams, GetContentInfoQueryParams } from "@workspace/api-zod";
 
-const OMDB_API_KEY = process.env.OMDB_API_KEY ?? "trilogy";
+const OMDB_API_KEY = process.env.OMDB_API_KEY ?? "";
 const OMDB_BASE_URL = "http://www.omdbapi.com";
 
 const router = Router();
 
 router.get("/search", async (req, res) => {
+  if (!OMDB_API_KEY) { res.json({ results: [], totalResults: 0 }); return; }
   try {
     const parsed = SearchContentQueryParams.safeParse(req.query);
     if (!parsed.success) {
@@ -47,6 +48,7 @@ router.get("/search", async (req, res) => {
 });
 
 router.get("/info", async (req, res) => {
+  if (!OMDB_API_KEY) { res.status(503).json({ error: "OMDB_API_KEY not configured" }); return; }
   try {
     const parsed = GetContentInfoQueryParams.safeParse(req.query);
     if (!parsed.success) {
