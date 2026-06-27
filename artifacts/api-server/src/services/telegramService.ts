@@ -326,3 +326,13 @@ export async function fetchMovieById(id: string): Promise<TelegramMovie | null> 
   const { movies } = await fetchChannelMovies();
   return movies.find((m) => m.id === id) ?? null;
 }
+/** Search movies in the in-memory store by title (case-insensitive). */
+export async function searchMovies(query: string): Promise<TelegramMovie[]> {
+  await ensureDbLoaded();
+  const lower = query.toLowerCase().trim();
+  if (!lower) return [];
+  return seedMovies
+    .filter((m) => m.title.toLowerCase().includes(lower))
+    .slice(0, 30);
+}
+
