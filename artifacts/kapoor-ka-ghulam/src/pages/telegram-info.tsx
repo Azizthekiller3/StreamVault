@@ -507,7 +507,10 @@ export default function TelegramInfo() {
           >
             <ArrowLeft className="w-4 h-4 text-white" />
           </button>
-          <div className="flex items-center gap-2">
+          <button
+            onClick={() => setLocation("/")}
+            className="flex items-center gap-2"
+          >
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center"
               style={{ background: "#dc2626" }}
@@ -517,7 +520,7 @@ export default function TelegramInfo() {
             <span className="text-white font-extrabold text-lg tracking-wide">
               Stream<span style={{ color: "#dc2626" }}>Vault</span>
             </span>
-          </div>
+          </button>
         </div>
         <button
           onClick={() => setLocation("/settings")}
