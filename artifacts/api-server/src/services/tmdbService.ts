@@ -50,6 +50,7 @@ export interface TmdbCastMember { name: string; character: string; photo: string
 export interface TmdbEnrichment {
   tmdbId: number;
   imdbId: string | null;
+  title: string;
   overview: string;
   poster: string;
   backdrop: string;
@@ -146,17 +147,14 @@ function scoreCandidate(
     else if (diff <= 1) score += 22;
     else if (diff <= 2) score += 14;
     else if (diff <= MAX_YEAR_DRIFT) score += 6;
-    else score -= 10; // heavy penalty for large year drift
+    else score -= 10;
   }
 
   // Language match (0-20 pts)
   if (langHint) {
     if (c.originalLanguage === langHint) {
       score += 20;
-    } else if (
-      // Hindi-dubbed content is usually an English original
-      langHint === "hi" && c.originalLanguage === "en"
-    ) {
+    } else if (langHint === "hi" && c.originalLanguage === "en") {
       score += 8;
     }
   }
@@ -179,14 +177,16 @@ async function fetchMovieDetail(id: number, apiKey: string): Promise<TmdbEnrichm
   const res = await fetch(url);
   if (!res.ok) throw new Error(`TMDB movie detail ${id} failed: ${res.status}`);
   const d = await res.json() as {
-    id: number; overview?: string; poster_path?: string; backdrop_path?: string;
+    id: number; title?: string; overview?: string; poster_path?: string; backdrop_path?: string;
     vote_average?: number; vote_count?: number; release_date?: string;
     runtime?: number; tagline?: string; genres?: { name: string }[];
     credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
     external_ids?: { imdb_id?: string };
   };
   return {
-    tmdbId: d.id, imdbId: d.external_ids?.imdb_id ?? null,
+    tmdbId: d.id,
+    imdbId: d.external_ids?.imdb_id ?? null,
+    title: d.title ?? "",
     overview: d.overview ?? "",
     poster: d.poster_path ? `${IMG_BASE}/w500${d.poster_path}` : "",
     backdrop: d.backdrop_path ? `${IMG_BASE}/w1280${d.backdrop_path}` : "",
@@ -209,14 +209,16 @@ async function fetchTvDetail(id: number, apiKey: string): Promise<TmdbEnrichment
   const res = await fetch(url);
   if (!res.ok) throw new Error(`TMDB tv detail ${id} failed: ${res.status}`);
   const tv = await res.json() as {
-    id: number; overview?: string; poster_path?: string; backdrop_path?: string;
+    id: number; name?: string; overview?: string; poster_path?: string; backdrop_path?: string;
     vote_average?: number; vote_count?: number; first_air_date?: string;
     episode_run_time?: number[]; tagline?: string; genres?: { name: string }[];
     credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
     external_ids?: { imdb_id?: string };
   };
   return {
-    tmdbId: tv.id, imdbId: tv.external_ids?.imdb_id ?? null,
+    tmdbId: tv.id,
+    imdbId: tv.external_ids?.imdb_id ?? null,
+    title: tv.name ?? "",
     overview: tv.overview ?? "",
     poster: tv.poster_path ? `${IMG_BASE}/w500${tv.poster_path}` : "",
     backdrop: tv.backdrop_path ? `${IMG_BASE}/w1280${tv.backdrop_path}` : "",
@@ -282,11 +284,9 @@ async function searchMulti(
 
   if (!candidates.length) return null;
 
-  // Sort by score descending
   candidates.sort((a, b) => b.score - a.score);
   const best = candidates[0];
 
-  // Reject if confidence too low
   if (best.score < MIN_CONFIDENCE) {
     logger.warn({ title, score: best.score, best: best.title }, "[tmdb] Low confidence match — skipping");
     return null;
@@ -345,14 +345,12 @@ export async function enrichFromTmdb(rawTitle: string, audio?: string): Promise<
   }
 
   try {
-    // 1. Check permanent overrides first
     const overrideResult = await checkOverride(rawTitle, apiKey);
     if (overrideResult) {
       cache.set(key, { data: overrideResult, ts: Date.now() });
       return overrideResult;
     }
 
-    // 2. Clean title + extract hints
     const yearHint = extractYear(rawTitle);
     const preferSeries = looksLikeSeries(rawTitle);
     const langHint = extractLanguage(audio);
@@ -363,7 +361,6 @@ export async function enrichFromTmdb(rawTitle: string, audio?: string): Promise<
       return null;
     }
 
-    // 3. Smart multi-search with confidence scoring
     const result = await searchMulti(title, yearHint, langHint, preferSeries, apiKey);
     cache.set(key, { data: result, ts: Date.now() });
     return result;
@@ -436,7 +433,7 @@ export async function saveTitleOverride(
     const detail = mediaType === "tv"
       ? await fetchTvDetail(tmdbId, apiKey)
       : await fetchMovieDetail(tmdbId, apiKey);
-    tmdbTitle = detail.poster ? rawTitle : rawTitle;
+    tmdbTitle = detail.title || rawTitle;
     tmdbPoster = detail.poster;
   } catch {}
 
@@ -448,10 +445,9 @@ export async function saveTitleOverride(
       set: { tmdbId, mediaType, tmdbTitle, tmdbPoster },
     });
 
-  // Bust caches
   overrideCacheLoadedAt = 0;
   cache.delete(rawTitle.toLowerCase());
-  logger.info({ rawTitle, tmdbId, mediaType }, "[tmdb] override saved");
+  logger.info({ rawTitle, tmdbId, mediaType, tmdbTitle }, "[tmdb] override saved");
 }
 
 /** Delete a title override by ID */
