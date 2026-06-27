@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { fetchChannelMovies, fetchMovieById, addSeedMovie, removeSeedMovie, seedMovies, parseRawPost, type TelegramMovie } from "../services/telegramService.js";
+import { fetchChannelMovies, fetchMovieById, addSeedMovie, removeSeedMovie, seedMovies, parseRawPost, searchMovies, type TelegramMovie } from "../services/telegramService.js";
 import { enrichFromTmdb } from "../services/tmdbService.js";
 import { getComments, addComment } from "../services/commentService.js";
 import { verifySecret } from "../lib/auth.js";
@@ -206,4 +206,20 @@ router.post("/telegram/webhook", async (req, res) => {
   }
 });
 
-export default router;
+
+router.get("/telegram/search", async (req, res) => {
+  const q = (req.query["q"] as string | undefined)?.trim() ?? "";
+  if (q.length < 2) {
+    res.json({ movies: [] );
+    return;
+  }
+  try {
+    const movies = await searchMovies(q);
+    res.json({ movies });
+  } catch (err) {
+    req.log.error({ err }, "Telegram search failed");
+    res.status(500).json({ error: "Search failed" });
+  }
+});
+
+export default router;}
