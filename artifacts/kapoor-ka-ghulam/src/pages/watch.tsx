@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 
 export default function Watch() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   
   const src = searchParams.get("src") || "";
@@ -114,7 +114,7 @@ export default function Watch() {
       <div 
         className={`absolute top-0 left-0 right-0 p-6 bg-gradient-to-b from-black/80 to-transparent transition-opacity duration-300 pointer-events-none ${showControls ? "opacity-100" : "opacity-0"}`}
       >
-        <div className="flex items-center gap-4 pointer-events-auto">
+        <div className="flex items-center gap-4 pointer-events-auto w-full">
           <Button 
             variant="ghost" 
             size="icon" 
@@ -123,10 +123,18 @@ export default function Watch() {
           >
             <ChevronLeft className="w-8 h-8" />
           </Button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-bold font-serif">{title}</h1>
             {episodeTitle && <p className="text-sm text-white/70">{episodeTitle}</p>}
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20 rounded-full h-12 w-12"
+            onClick={toggleFullScreen}
+          >
+            {document.fullscreenElement ? <Minimize className="w-6 h-6" /> : <Maximize className="w-6 h-6" />}
+          </Button>
         </div>
       </div>
     </div>
