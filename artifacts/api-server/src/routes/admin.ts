@@ -1,6 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
 import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
+import { enrichFromTmdb } from "../services/tmdbService.js";
+import { db, moviesTable } from "@workspace/db";
+import { isNull, eq, or } from "drizzle-orm";
 
 const router = Router();
 
@@ -154,6 +157,55 @@ router.post("/admin/bulk-save", (req, res) => {
   }
   req.log.info({ saved, failed }, "Admin bulk saved movies");
   res.json({ ok: true, saved, failed });
+});
+
+
+// POST /api/admin/bulk-enrich
+// Enriches all DB movies that have no poster with TMDB poster lookups.
+// Returns { enriched, skipped, failed, total } — runs synchronously so the
+// caller gets a definitive result (may take up to ~1 s per movie).
+router.post("/admin/bulk-enrich", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  try {
+    // Fetch all movies missing a poster from the DB
+    const rows = await db
+      .select()
+      .from(moviesTable)
+      .where(or(isNull(moviesTable.poster), eq(moviesTable.poster, "")));
+
+    const total = rows.length;
+    let enriched = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      try {
+        const result = await enrichFromTmdb(row.title);
+        if (result?.poster && result.poster !== "N/A") {
+          await db
+            .update(moviesTable)
+            .set({ poster: result.poster })
+            .where(eq(moviesTable.messageId, row.messageId));
+          // Sync in-memory store
+          const idx = seedMovies.findIndex((m) => m.id === row.messageId);
+          if (idx >= 0) seedMovies[idx].poster = result.poster;
+          enriched++;
+        } else {
+          skipped++;
+        }
+      } catch {
+        failed++;
+      }
+      // Brief pause to stay within TMDB rate limits (40 req / 10 s)
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    req.log.info({ enriched, skipped, failed, total }, "Admin bulk-enrich complete");
+    res.json({ ok: true, enriched, skipped, failed, total });
+  } catch (err) {
+    req.log.error({ err }, "Bulk-enrich failed");
+    res.status(500).json({ error: "Bulk-enrich failed" });
+  }
 });
 
 export default router;
