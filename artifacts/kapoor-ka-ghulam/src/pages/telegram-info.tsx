@@ -379,6 +379,10 @@ export default function TelegramInfo() {
   const searchParams = new URLSearchParams(search);
   const id = searchParams.get("id") || "";
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [id]);
+
   const { data: movie, isLoading, isError } = useQuery({
     queryKey: ["telegram-movie", id],
     queryFn: () => fetchMovie(id),
