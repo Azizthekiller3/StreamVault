@@ -2,7 +2,7 @@ import { Router } from "express";
 import { SearchContentQueryParams, GetContentInfoQueryParams } from "@workspace/api-zod";
 
 const OMDB_API_KEY = process.env.OMDB_API_KEY ?? "";
-const OMDB_BASE_URL = "http://www.omdbapi.com";
+const OMDB_BASE_URL = "https://www.omdbapi.com";
 
 const router = Router();
 
@@ -34,7 +34,7 @@ router.get("/search", async (req, res) => {
       title: item.Title,
       year: item.Year,
       type: item.Type,
-      poster: item.Poster !== "N/A" ? item.Poster : "https://via.placeholder.com/300x450?text=No+Poster",
+      poster: item.Poster !== "N/A" ? item.Poster : "",
     }));
 
     res.json({
@@ -75,7 +75,7 @@ router.get("/info", async (req, res) => {
       title: data.Title,
       year: data.Year,
       type: data.Type,
-      poster: data.Poster !== "N/A" ? data.Poster : "https://via.placeholder.com/300x450?text=No+Poster",
+      poster: data.Poster !== "N/A" ? data.Poster : "",
       plot: data.Plot,
       rating: data.imdbRating,
       genre: data.Genre,
