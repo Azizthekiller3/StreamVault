@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { Search as SearchIcon, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useSearchContent } from "@workspace/api-client-react";
+import { useActiveExtension } from "@/hooks/use-active-extension";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api-base";
@@ -49,6 +50,7 @@ export default function Search() {
     { query: { enabled: debouncedQuery.length > 2, queryKey: ["searchContent", debouncedQuery] } }
   );
 
+  const { activeExtId } = useActiveExtension();
   const isLoading = telegramLoading || omdbLoading;
   const telegramMovies = telegramData?.movies ?? [];
   const omdbResults = omdbData?.results ?? [];
@@ -133,7 +135,7 @@ export default function Search() {
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: Math.min(i * 0.04, 0.4) }}
                   className="cursor-pointer"
-                  onClick={() => setLocation(`/info?imdbId=${result.imdbId}`)}
+                  onClick={() => setLocation(`/info?imdbId=${result.imdbId}${activeExtId ? `&extId=${activeExtId}` : ''}`)}
                   data-testid={`search-result-${i}`}
                 >
                   <div className="aspect-[2/3] rounded-lg overflow-hidden bg-white/5">
