@@ -91,6 +91,7 @@ export default function Home() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)}
           placeholder="Search movies..."
           className="flex-1 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none"
           style={{
@@ -101,7 +102,7 @@ export default function Home() {
         <button
           className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: "#dc2626" }}
-          onClick={() => {}}
+          onClick={() => search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)}
         >
           <SearchIcon className="w-4 h-4 text-white" />
         </button>
