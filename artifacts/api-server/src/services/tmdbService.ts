@@ -38,7 +38,6 @@ function decodeHtmlEntities(raw: string): string {
     .replace(/&apos;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
-    // Handle bare numeric codes without semicolons (e.g. "Man39s" → "Man's")
     .replace(/(\w)39(\w)/g, "$1'$2")
     .replace(/(\w)38(\w)/g, "$1&$2");
 }
@@ -55,67 +54,72 @@ function cleanTitle(raw: string): string {
     .trim();
 }
 
-async function searchTmdb(title: string, apiKey: string): Promise<TmdbEnrichment | null> {
-  // Try movie search first
-  const movieUrl = `${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
-  const movieRes = await fetch(movieUrl);
-  if (!movieRes.ok) throw new Error(`TMDB movie search failed: ${movieRes.status}`);
-  const movieData = await movieRes.json() as { results?: { id: number }[] };
+/** Extract a 4-digit year from the raw title, e.g. "(2021)" → "2021". */
+function extractYear(raw: string): string | null {
+  const m = raw.match(/\b(19[5-9]\d|20[0-3]\d)\b/);
+  return m ? m[1] : null;
+}
 
-  if (movieData.results && movieData.results.length > 0) {
-    const firstResult = movieData.results[0];
-    const detailUrl = `${TMDB_BASE}/movie/${firstResult.id}?api_key=${apiKey}&language=en-US&append_to_response=credits,external_ids`;
-    const detailRes = await fetch(detailUrl);
-    if (!detailRes.ok) throw new Error(`TMDB movie detail failed: ${detailRes.status}`);
-    const d = await detailRes.json() as {
-      id: number;
-      overview?: string;
-      poster_path?: string;
-      backdrop_path?: string;
-      vote_average?: number;
-      vote_count?: number;
-      release_date?: string;
-      runtime?: number;
-      tagline?: string;
-      genres?: { id: number; name: string }[];
-      credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
-      external_ids?: { imdb_id?: string };
-    };
-    const cast: TmdbCastMember[] = (d.credits?.cast ?? []).slice(0, 8).map((c) => ({
+/** True when the raw title looks like a TV series. */
+function looksLikeSeries(raw: string): boolean {
+  return /\b(Season|Series|Web.?Series|S\d{2})\b/i.test(raw);
+}
+
+/** Pick the result whose release year is closest to yearHint. */
+function pickByYear<T extends { releaseYear: string }>(items: T[], yearHint: string | null): T | null {
+  if (!items.length) return null;
+  if (!yearHint) return items[0];
+  const target = parseInt(yearHint, 10);
+  return items.reduce((best, curr) => {
+    const currYear = parseInt(curr.releaseYear || "0", 10);
+    const bestYear = parseInt(best.releaseYear || "0", 10);
+    return Math.abs(currYear - target) < Math.abs(bestYear - target) ? curr : best;
+  });
+}
+
+async function fetchMovieDetail(id: number, apiKey: string): Promise<TmdbEnrichment> {
+  const url = `${TMDB_BASE}/movie/${id}?api_key=${apiKey}&language=en-US&append_to_response=credits,external_ids`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`TMDB movie detail failed: ${res.status}`);
+  const d = await res.json() as {
+    id: number;
+    overview?: string;
+    poster_path?: string;
+    backdrop_path?: string;
+    vote_average?: number;
+    vote_count?: number;
+    release_date?: string;
+    runtime?: number;
+    tagline?: string;
+    genres?: { id: number; name: string }[];
+    credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
+    external_ids?: { imdb_id?: string };
+  };
+  return {
+    tmdbId: d.id,
+    imdbId: d.external_ids?.imdb_id ?? null,
+    overview: d.overview ?? "",
+    poster: d.poster_path ? `${IMG_BASE}/w500${d.poster_path}` : "",
+    backdrop: d.backdrop_path ? `${IMG_BASE}/w1280${d.backdrop_path}` : "",
+    rating: Math.round((d.vote_average ?? 0) * 10) / 10,
+    voteCount: d.vote_count ?? 0,
+    year: (d.release_date ?? "").split("-")[0] ?? "",
+    runtime: d.runtime ?? 0,
+    tagline: d.tagline ?? "",
+    genres: (d.genres ?? []).map((g) => g.name).slice(0, 4),
+    cast: (d.credits?.cast ?? []).slice(0, 8).map((c) => ({
       name: c.name,
       character: c.character,
       photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
-    }));
-    return {
-      tmdbId: d.id,
-      imdbId: d.external_ids?.imdb_id ?? null,
-      overview: d.overview ?? "",
-      poster: d.poster_path ? `${IMG_BASE}/w500${d.poster_path}` : "",
-      backdrop: d.backdrop_path ? `${IMG_BASE}/w1280${d.backdrop_path}` : "",
-      rating: Math.round((d.vote_average ?? 0) * 10) / 10,
-      voteCount: d.vote_count ?? 0,
-      year: (d.release_date ?? "").split("-")[0] ?? "",
-      runtime: d.runtime ?? 0,
-      tagline: d.tagline ?? "",
-      genres: (d.genres ?? []).map((g) => g.name).slice(0, 4),
-      cast,
-    };
-  }
+    })),
+  };
+}
 
-  // Fallback: try TV show search (handles series, seasons, episodes)
-  const tvUrl = `${TMDB_BASE}/search/tv?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
-  const tvRes = await fetch(tvUrl);
-  if (!tvRes.ok) return null;
-  const tvData = await tvRes.json() as { results?: { id: number }[] };
-
-  if (!tvData.results || tvData.results.length === 0) return null;
-
-  const tvId = tvData.results[0].id;
-  const tvDetailUrl = `${TMDB_BASE}/tv/${tvId}?api_key=${apiKey}&language=en-US&append_to_response=credits,external_ids`;
-  const tvDetailRes = await fetch(tvDetailUrl);
-  if (!tvDetailRes.ok) return null;
-
-  const tv = await tvDetailRes.json() as {
+async function fetchTvDetail(id: number, apiKey: string): Promise<TmdbEnrichment> {
+  const url = `${TMDB_BASE}/tv/${id}?api_key=${apiKey}&language=en-US&append_to_response=credits,external_ids`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`TMDB tv detail failed: ${res.status}`);
+  const tv = await res.json() as {
     id: number;
     overview?: string;
     poster_path?: string;
@@ -129,13 +133,6 @@ async function searchTmdb(title: string, apiKey: string): Promise<TmdbEnrichment
     credits?: { cast?: { name: string; character: string; profile_path?: string }[] };
     external_ids?: { imdb_id?: string };
   };
-
-  const tvCast: TmdbCastMember[] = (tv.credits?.cast ?? []).slice(0, 8).map((c) => ({
-    name: c.name,
-    character: c.character,
-    photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
-  }));
-
   return {
     tmdbId: tv.id,
     imdbId: tv.external_ids?.imdb_id ?? null,
@@ -148,8 +145,58 @@ async function searchTmdb(title: string, apiKey: string): Promise<TmdbEnrichment
     runtime: tv.episode_run_time?.[0] ?? 0,
     tagline: tv.tagline ?? "",
     genres: (tv.genres ?? []).map((g) => g.name).slice(0, 4),
-    cast: tvCast,
+    cast: (tv.credits?.cast ?? []).slice(0, 8).map((c) => ({
+      name: c.name,
+      character: c.character,
+      photo: c.profile_path ? `${IMG_BASE}/w185${c.profile_path}` : "",
+    })),
   };
+}
+
+async function searchMovie(title: string, yearHint: string | null, apiKey: string): Promise<TmdbEnrichment | null> {
+  const url = `${TMDB_BASE}/search/movie?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json() as { results?: { id: number; release_date?: string }[] };
+  if (!data.results?.length) return null;
+
+  const candidates = data.results.slice(0, 5).map((r) => ({
+    id: r.id,
+    releaseYear: (r.release_date ?? "").split("-")[0] ?? "",
+  }));
+  const best = pickByYear(candidates, yearHint);
+  if (!best) return null;
+  return fetchMovieDetail(best.id, apiKey);
+}
+
+async function searchTv(title: string, yearHint: string | null, apiKey: string): Promise<TmdbEnrichment | null> {
+  const url = `${TMDB_BASE}/search/tv?query=${encodeURIComponent(title)}&api_key=${apiKey}&language=en-US&include_adult=false`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json() as { results?: { id: number; first_air_date?: string }[] };
+  if (!data.results?.length) return null;
+
+  const candidates = data.results.slice(0, 5).map((r) => ({
+    id: r.id,
+    releaseYear: (r.first_air_date ?? "").split("-")[0] ?? "",
+  }));
+  const best = pickByYear(candidates, yearHint);
+  if (!best) return null;
+  return fetchTvDetail(best.id, apiKey);
+}
+
+async function searchTmdb(title: string, yearHint: string | null, seriesHint: boolean, apiKey: string): Promise<TmdbEnrichment | null> {
+  if (seriesHint) {
+    // Series hint: try TV first, fall back to movie
+    const tv = await searchTv(title, yearHint, apiKey);
+    if (tv) return tv;
+    return searchMovie(title, yearHint, apiKey);
+  } else {
+    // Movie hint: try movie first, fall back to TV
+    const movie = await searchMovie(title, yearHint, apiKey);
+    if (movie) return movie;
+    return searchTv(title, yearHint, apiKey);
+  }
 }
 
 export async function enrichFromTmdb(rawTitle: string): Promise<TmdbEnrichment | null> {
@@ -164,13 +211,15 @@ export async function enrichFromTmdb(rawTitle: string): Promise<TmdbEnrichment |
   }
 
   try {
+    const yearHint = extractYear(rawTitle);
+    const seriesHint = looksLikeSeries(rawTitle);
     const title = cleanTitle(rawTitle);
     if (!title || title.length < 2) {
       cache.set(key, { data: null, ts: Date.now() });
       return null;
     }
 
-    const result = await searchTmdb(title, apiKey);
+    const result = await searchTmdb(title, yearHint, seriesHint, apiKey);
     cache.set(key, { data: result, ts: Date.now() });
     return result;
   } catch {
