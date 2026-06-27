@@ -13,6 +13,7 @@ interface TelegramMovie {
   poster: string;
   audio: string;
   qualities: { quality: string; url: string }[];
+  messageId?: number;
 }
 
 function useTelegramMovies() {
@@ -63,7 +64,7 @@ export default function Home() {
   const [cat, setCat] = useState<Category>("All");
   const [, setLocation] = useLocation();
   const { data, isLoading } = useTelegramMovies();
-  const allMovies = data?.movies ?? [];
+  const allMovies = (data?.movies ?? []).slice().sort((a, b) => (b.messageId ?? 0) - (a.messageId ?? 0));
   const filtered = useMemo(() => applyFilter(allMovies, cat, search), [allMovies, cat, search]);
 
   return (
