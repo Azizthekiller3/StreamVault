@@ -4,6 +4,7 @@ import { join } from "path";
 import { db, moviesTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
+import { enrichFromTmdb } from "./tmdbService.js";
 
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -197,6 +198,35 @@ export function parseRawPost(text: string, id: string, poster = ""): TelegramMov
   return { id, title: parseTitle(lines), poster, audio: parseAudio(lines), qualities, messageId: 0 };
 }
 
+
+// Check if a URL is a Telegram CDN URL (not usable in browsers due to CORS/auth)
+function isTelegramCdnUrl(url: string): boolean {
+  return /telesco\.pe|cdn\.telegram|t\.me/i/i.test(url);
+}
+
+/** Enriches a movie's poster with TMDB in the background if the poster is
+ *  missing or is a Telegram CDN URL that won't load in browsers. */
+async function enrichPosterInBackground(movie: TelegramMovie): Promise<void> {
+  if (movie.poster && !isTelegramCdnUrl(movie.poster)) return;
+  try {
+    const enriched = await enrichFromTmdb(movie.title);
+    if (!enriched?.poster || enriched.poster === 'N/A') return;
+    // Update in-memory store
+    const idx = seedMovies.findIndex((m) => m.id === movie.id);
+    if (idx >= 0) seedMovies[idx].poster = enriched.poster;
+    movie.poster = enriched.poster;
+    // Persist updated poster to DB
+    void db
+      .update(moviesTable)
+      .set({ poster: enriched.poster })
+      .where(eq(moviesTable.messageId, movie.id))
+      .catch((err) => logger.error({ err }, '[telegramService] poster DB update failed'));
+    logger.info({ id: movie.id, title: movie.title }, '[telegramService] poster enriched via TMDB');
+  } catch (err) {
+    logger.warn({ err, title: movie.title }, '[telegramService] TMDB poster enrichment failed');
+  }
+}
+
 /** Add or replace a movie in the in-memory store and persist to DB. */
 export function addSeedMovie(movie: TelegramMovie): void {
   const idx = seedMovies.findIndex((m) => m.id === movie.id);
@@ -223,6 +253,9 @@ export function addSeedMovie(movie: TelegramMovie): void {
       },
     })
     .catch((err) => logger.error({ err }, "[telegramService] addSeedMovie DB error"));
+
+  // Fire-and-forget: enrich poster via TMDB if missing or Telegram CDN URL
+  void enrichPosterInBackground(movie);
 }
 
 /** Remove a movie from the in-memory store and delete from DB. */
@@ -316,8 +349,22 @@ export async function fetchChannelMovies(
 
 function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
   if (seedMovies.length === 0) return scraped;
+  const seedMap = new Map(seedMovies.map((m) => [m.id, m]));
   const scrapedIds = new Set(scraped.map((m) => m.id));
-  const merged = [...seedMovies.filter((m) => !scrapedIds.has(m.id)), ...scraped];
+
+  // For scraped movies, use the enriched poster from seedMovies when the
+  // scraped poster is missing or is a Telegram CDN URL that won't load in browsers.
+  const mergedScraped = scraped.map((m) => {
+    const seed = seedMap.get(m.id);
+    if (seed?.poster && (!m.poster || isTelegramCdnUrl(m.poster))) {
+      return { ...m, poster: seed.poster };
+    }
+    return m;
+  });
+
+  // Include seed-only movies (not present in the scraped batch)
+  const seedOnly = seedMovies.filter((m) => !scrapedIds.has(m.id));
+  const merged = [...seedOnly, ...mergedScraped];
   const seen = new Set<string>();
   return merged.filter((m) => {
     if (seen.has(m.id)) return false;
