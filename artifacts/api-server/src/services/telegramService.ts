@@ -24,9 +24,9 @@ function loadConfig(): AppConfig {
     ensureDir();
     const raw = readFileSync(CONFIG_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    return { channel: parsed.channel || "backupchannek" };
+    return { channel: parsed.channel || "dbxixjdb" };
   } catch {
-    return { channel: "backupchannek" };
+    return { channel: "dbxixjdb" };
   }
 }
 
