@@ -122,20 +122,31 @@ const URL_CHARS = /https?:\/\/[a-zA-Z0-9._~:/?#[\]@!$&'()*+,;=%\-]+/;
 
 function parseQualities(lines: string[]): TeraboxQuality[] {
   const qualities: TeraboxQuality[] = [];
-  const patterns = [
+  const qualityPatterns = [
     { label: "480p",  re: /480p/i },
     { label: "720p",  re: /720p/i },
     { label: "1080p", re: /1080p/i },
     { label: "4K",    re: /\b(4[Kk]|2160p)\b/ },
   ];
   for (const line of lines) {
-    for (const { label, re } of patterns) {
-      if (!re.test(line)) continue;
-      const urlMatch = line.match(URL_CHARS);
-      if (urlMatch && urlMatch[0].toLowerCase().includes("terabox")) {
-        if (!qualities.find((q) => q.quality === label)) {
-          qualities.push({ quality: label, url: urlMatch[0] });
-        }
+    const urlMatch = line.match(URL_CHARS);
+    if (!urlMatch || !urlMatch[0].toLowerCase().includes("terabox")) continue;
+    const url = urlMatch[0];
+    // Standard quality labels (480p / 720p / 1080p / 4K)
+    let found = false;
+    for (const { label, re } of qualityPatterns) {
+      if (re.test(line)) {
+        if (!qualities.find((q) => q.quality === label)) qualities.push({ quality: label, url });
+        found = true;
+        break;
+      }
+    }
+    // Episode links: E01, E02 … E999 (only when no quality label matched)
+    if (!found) {
+      const ep = line.match(/\bE(\d{2,3})\b/i);
+      if (ep) {
+        const label = `E${ep[1].padStart(2, "0")}`;
+        if (!qualities.find((q) => q.quality === label)) qualities.push({ quality: label, url });
       }
     }
   }
