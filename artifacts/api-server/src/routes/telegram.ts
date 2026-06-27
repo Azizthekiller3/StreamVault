@@ -6,31 +6,19 @@ import { verifySecret } from "../lib/auth.js";
 
 const router = Router();
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-/** Only allow alphanumeric IDs to prevent path/key injection */
 function isValidId(id: string | undefined): id is string {
   return typeof id === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 }
-
-/** Safely parse an integer — returns undefined on NaN/invalid */
 function safeInt(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const n = parseInt(value, 10);
   return isNaN(n) || n < 0 ? undefined : n;
 }
-
-/** Reject admin requests with bad or missing secret */
 function requireSecret(req: Request, res: Response): boolean {
   const provided = req.headers["x-backfill-secret"] as string | undefined;
-  if (!verifySecret(provided)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return false;
-  }
+  if (!verifySecret(provided)) { res.status(401).json({ error: "Unauthorized" }); return false; }
   return true;
 }
-
-// ── Movies ─────────────────────────────────────────────────────────────────
 
 router.get("/telegram/movies", async (req, res) => {
   try {
@@ -45,16 +33,10 @@ router.get("/telegram/movies", async (req, res) => {
 
 router.get("/telegram/movies/:id", async (req, res) => {
   const { id } = req.params;
-  if (!isValidId(id)) {
-    res.status(400).json({ error: "Invalid movie ID" });
-    return;
-  }
+  if (!isValidId(id)) { res.status(400).json({ error: "Invalid movie ID" }); return; }
   try {
     const movie = await fetchMovieById(id);
-    if (!movie) {
-      res.status(404).json({ error: "Movie not found" });
-      return;
-    }
+    if (!movie) { res.status(404).json({ error: "Movie not found" }); return; }
     res.json(movie);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch telegram movie");
@@ -62,18 +44,10 @@ router.get("/telegram/movies/:id", async (req, res) => {
   }
 });
 
-// ── TMDB ───────────────────────────────────────────────────────────────────
-
 router.get("/tmdb/enrich", async (req, res) => {
   const title = req.query["title"] as string | undefined;
-  if (!title?.trim()) {
-    res.status(400).json({ error: "title query param required" });
-    return;
-  }
-  if (title.trim().length > 200) {
-    res.status(400).json({ error: "title too long" });
-    return;
-  }
+  if (!title?.trim()) { res.status(400).json({ error: "title query param required" }); return; }
+  if (title.trim().length > 200) { res.status(400).json({ error: "title too long" }); return; }
   try {
     const data = await enrichFromTmdb(title.trim());
     res.json(data);
@@ -83,16 +57,12 @@ router.get("/tmdb/enrich", async (req, res) => {
   }
 });
 
-// ── Comments ───────────────────────────────────────────────────────────────
-
-router.get("/comments/:movieId", (req, res) => {
+// ── Comments — FIXED: now async to properly await PostgreSQL calls ──────────
+router.get("/comments/:movieId", async (req, res) => {
   const { movieId } = req.params;
-  if (!isValidId(movieId)) {
-    res.status(400).json({ error: "Invalid movie ID" });
-    return;
-  }
+  if (!isValidId(movieId)) { res.status(400).json({ error: "Invalid movie ID" }); return; }
   try {
-    const comments = getComments(movieId);
+    const comments = await getComments(movieId);
     res.json(comments);
   } catch (err) {
     req.log.error({ err }, "Failed to get comments");
@@ -100,27 +70,19 @@ router.get("/comments/:movieId", (req, res) => {
   }
 });
 
-router.post("/comments/:movieId", (req, res) => {
+router.post("/comments/:movieId", async (req, res) => {
   const { movieId } = req.params;
-  if (!isValidId(movieId)) {
-    res.status(400).json({ error: "Invalid movie ID" });
-    return;
-  }
+  if (!isValidId(movieId)) { res.status(400).json({ error: "Invalid movie ID" }); return; }
   try {
     const { username, text } = req.body as { username?: unknown; text?: unknown };
     if (typeof username !== "string" || typeof text !== "string") {
-      res.status(400).json({ error: "username and text must be strings" });
-      return;
+      res.status(400).json({ error: "username and text must be strings" }); return;
     }
     if (!username.trim() || !text.trim()) {
-      res.status(400).json({ error: "username and text are required" });
-      return;
+      res.status(400).json({ error: "username and text are required" }); return;
     }
-    const comment = addComment(movieId, username, text);
-    if (!comment) {
-      res.status(400).json({ error: "Invalid comment" });
-      return;
-    }
+    const comment = await addComment(movieId, username, text);
+    if (!comment) { res.status(400).json({ error: "Invalid comment" }); return; }
     res.status(201).json(comment);
   } catch (err) {
     req.log.error({ err }, "Failed to add comment");
@@ -128,25 +90,19 @@ router.post("/comments/:movieId", (req, res) => {
   }
 });
 
-// ── Legacy seed endpoints (kept for backward compat) ───────────────────────
-
 router.post("/telegram/seed", (req, res) => {
   if (!requireSecret(req, res)) return;
   const body = req.body as Partial<TelegramMovie>;
   const { id, title, audio, qualities, poster } = body;
   if (!id || !title || !Array.isArray(qualities) || qualities.length === 0) {
-    res.status(400).json({ error: "id, title and at least one quality are required" });
-    return;
+    res.status(400).json({ error: "id, title and at least one quality are required" }); return;
   }
   const movie: TelegramMovie = {
-    id: String(id).slice(0, 64),
-    title: String(title).slice(0, 200),
+    id: String(id).slice(0, 64), title: String(title).slice(0, 200),
     poster: typeof poster === "string" ? poster : "",
     audio: typeof audio === "string" ? audio : "",
-    qualities: qualities
-      .filter((q) => q && typeof q.quality === "string" && typeof q.url === "string")
-      .map((q) => ({ quality: String(q.quality), url: String(q.url) }))
-      .slice(0, 10),
+    qualities: qualities.filter((q) => q && typeof q.quality === "string" && typeof q.url === "string")
+      .map((q) => ({ quality: String(q.quality), url: String(q.url) })).slice(0, 10),
     messageId: 0,
   };
   addSeedMovie(movie);
@@ -158,21 +114,15 @@ router.delete("/telegram/seed/:id", (req, res) => {
   if (!requireSecret(req, res)) return;
   const { id } = req.params;
   const removed = removeSeedMovie(id);
-  if (!removed) {
-    res.status(404).json({ error: "Seed movie not found" });
-    return;
-  }
+  if (!removed) { res.status(404).json({ error: "Seed movie not found" }); return; }
   res.json({ ok: true });
 });
-
-// ── Admin — Telegram Backfill ──────────────────────────────────────────────
 
 router.post("/telegram/backfill", async (req, res) => {
   if (!requireSecret(req, res)) return;
   const pages = Math.min(safeInt(req.query["pages"] as string | undefined) ?? 5, 50);
   try {
-    let total = 0;
-    let before: number | undefined;
+    let total = 0; let before: number | undefined;
     for (let i = 0; i < pages; i++) {
       const result = await fetchChannelMovies(before);
       total += result.movies.length;
@@ -187,24 +137,17 @@ router.post("/telegram/backfill", async (req, res) => {
   }
 });
 
-// ── Admin — Register Webhook ───────────────────────────────────────────────
-
 router.post("/telegram/register-webhook", async (req, res) => {
   if (!requireSecret(req, res)) return;
   const { webhookUrl } = req.body as { webhookUrl?: unknown };
   if (typeof webhookUrl !== "string" || !webhookUrl.startsWith("https://")) {
-    res.status(400).json({ error: "webhookUrl must be a valid https URL" });
-    return;
+    res.status(400).json({ error: "webhookUrl must be a valid https URL" }); return;
   }
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
-    if (!token) {
-      res.status(500).json({ error: "TELEGRAM_BOT_TOKEN not configured" });
-      return;
-    }
+    if (!token) { res.status(500).json({ error: "TELEGRAM_BOT_TOKEN not configured" }); return; }
     const tgRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: webhookUrl }),
     });
     const data = await tgRes.json();
@@ -215,20 +158,16 @@ router.post("/telegram/register-webhook", async (req, res) => {
   }
 });
 
-// ── Admin — Parse raw Telegram message text and add as movie ──────────────
-
 router.post("/telegram/parse-and-add", async (req, res) => {
   if (!requireSecret(req, res)) return;
   const { text, poster } = req.body as { text?: unknown; poster?: unknown };
   if (typeof text !== "string" || !text.trim()) {
-    res.status(400).json({ error: "text (raw Telegram message) is required" });
-    return;
+    res.status(400).json({ error: "text (raw Telegram message) is required" }); return;
   }
   const id = `manual_${Date.now()}`;
   const movie = parseRawPost(text.trim(), id, typeof poster === "string" ? poster : "");
   if (!movie) {
-    res.status(400).json({ error: "No Terabox links found — make sure 720p/1080p links are in the text" });
-    return;
+    res.status(400).json({ error: "No Terabox links found — make sure 720p/1080p links are in the text" }); return;
   }
   try {
     const enriched = await enrichFromTmdb(movie.title);
@@ -241,38 +180,25 @@ router.post("/telegram/parse-and-add", async (req, res) => {
   res.status(201).json({ ok: true, movie });
 });
 
-// ── Webhook receiver ───────────────────────────────────────────────────────
-
 router.post("/telegram/webhook", async (req, res) => {
   res.json({ ok: true });
   try {
     const update = req.body as {
-      channel_post?: {
-        message_id: number;
-        text?: string;
-        caption?: string;
-        photo?: { file_id: string }[];
-      };
+      channel_post?: { message_id: number; text?: string; caption?: string; photo?: { file_id: string }[] };
     };
     const post = update?.channel_post;
     if (!post) return;
-
     const rawText = post.text || post.caption || "";
     if (!rawText.trim()) return;
-
     const movie = parseRawPost(rawText, String(post.message_id));
     if (!movie) return;
-
     movie.messageId = post.message_id;
-
-    // Try TMDB enrichment (best-effort)
     try {
       const enriched = await enrichFromTmdb(movie.title);
       if (enriched?.poster && enriched.poster !== "N/A") movie.poster = enriched.poster;
     } catch (err) {
       req.log.warn({ err, title: movie.title }, "TMDB enrichment failed for webhook (non-fatal)");
     }
-
     addSeedMovie(movie);
     req.log.info({ id: movie.id, title: movie.title }, "Movie added via webhook");
   } catch (err) {
