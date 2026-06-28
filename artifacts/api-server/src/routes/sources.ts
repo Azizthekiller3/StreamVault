@@ -1,15 +1,24 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { providerSourcesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { verifyAdminToken } from "../lib/adminAuth.js";
 import { AddSourceBody, RemoveSourceParams, SetDefaultSourceParams } from "@workspace/api-zod";
 
 const router = Router();
 
+function requireToken(req: Request, res: Response): boolean {
+  const token = req.headers["x-admin-token"] as string | undefined;
+  if (!verifyAdminToken(token)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
 function parseSourceInput(input: string): { name: string; url: string } {
   const trimmed = input.trim();
 
-  // Full raw GitHub URL
   if (trimmed.startsWith("https://raw.githubusercontent.com/")) {
     const parts = trimmed.split("/");
     const author = parts[3] ?? trimmed;
@@ -17,7 +26,6 @@ function parseSourceInput(input: string): { name: string; url: string } {
     return { name: `${author}/${repo}`, url: trimmed };
   }
 
-  // GitHub repo URL
   if (trimmed.startsWith("https://github.com/")) {
     const path = trimmed.replace("https://github.com/", "");
     const [author, repo = "vega-providers"] = path.split("/");
@@ -25,20 +33,17 @@ function parseSourceInput(input: string): { name: string; url: string } {
     return { name: `${author}/${repo}`, url };
   }
 
-  // Author shorthand (e.g. "vega-org")
   if (!trimmed.includes("/") && !trimmed.includes(".")) {
     const url = `https://raw.githubusercontent.com/${trimmed}/vega-providers/refs/heads/main`;
     return { name: `${trimmed}/vega-providers`, url };
   }
 
-  // Author/repo shorthand
   if (!trimmed.startsWith("http")) {
     const [author, repo = "vega-providers"] = trimmed.split("/");
     const url = `https://raw.githubusercontent.com/${author}/${repo}/refs/heads/main`;
     return { name: `${author}/${repo}`, url };
   }
 
-  // Generic URL — guard against invalid URLs
   try {
     const urlObj = new URL(trimmed);
     return { name: urlObj.hostname, url: trimmed };
@@ -64,6 +69,7 @@ router.get("/sources", async (req, res) => {
 });
 
 router.post("/sources", async (req, res) => {
+  if (!requireToken(req, res)) return;
   try {
     const parsed = AddSourceBody.safeParse(req.body);
     if (!parsed.success) {
@@ -93,6 +99,7 @@ router.post("/sources", async (req, res) => {
 });
 
 router.delete("/sources/:id", async (req, res) => {
+  if (!requireToken(req, res)) return;
   try {
     const parsed = RemoveSourceParams.safeParse({ id: Number(req.params.id) });
     if (!parsed.success) {
@@ -108,6 +115,7 @@ router.delete("/sources/:id", async (req, res) => {
 });
 
 router.put("/sources/:id/default", async (req, res) => {
+  if (!requireToken(req, res)) return;
   try {
     const parsed = SetDefaultSourceParams.safeParse({ id: Number(req.params.id) });
     if (!parsed.success) {
