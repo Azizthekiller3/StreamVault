@@ -186,6 +186,7 @@ function parseTitle(lines: string[]): string {
   for (const line of lines) {
     if (line.match(/terabox/i) || line.match(/^\s*\d{3,4}p/i) || line.match(/^https?:/i)) continue;
     if (line.match(/backup|t\.me|subscribe|audio|quality|genre|join|request|group|channel|forward/i)) continue;
+    if (line.match(/watch.?online|watch.?now|stream.?now|download|click.?here|enjoy.?now|^\s*\/add\s/i)) continue;
     const clean = line.replace(/[^\p{L}\p{N}\s\-:'.!?()#]/gu, "").trim();
     if (clean.length > 2) return clean;
   }
@@ -206,9 +207,31 @@ function parseAudio(lines: string[]): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function decodeEntities(str: string): string {
+  return str
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(parseInt(n, 10)));
+}
+
 function htmlToLines($el: cheerio.Cheerio<any>, $: cheerio.CheerioAPI): string[] {
   $el.find("br").replaceWith("\n");
-  return $el.text().split("\n").map((l) => l.trim()).filter(Boolean);
+  return decodeEntities($el.text()).split("\n").map((l) => l.trim()).filter(Boolean);
+}
+
+
+/** Returns true if the parsed title looks like a junk/CTA line rather than a real movie title. */
+function isJunkTitle(title: string): boolean {
+  const t = title.toLowerCase().trim();
+  return (
+    t.length < 3 ||
+    t === "unknown title" ||
+    /^(watch.?online|watch.?now|stream.?now|download|click.?here|enjoy.?now|subscribe)/i.test(t) ||
+    /^(movie|film|video|series|web.?series|episode)$/.test(t)
+  );
 }
 
 /** Parse a raw Telegram post (plain text) into a TelegramMovie. */
@@ -216,7 +239,9 @@ export function parseRawPost(text: string, id: string, poster = ""): TelegramMov
   const lines = text.split(/\n|\r/).map((l) => l.trim()).filter(Boolean);
   const qualities = parseQualities(lines);
   if (qualities.length === 0) return null;
-  return { id, title: parseTitle(lines), poster, audio: parseAudio(lines), qualities, messageId: 0 };
+  const title = parseTitle(lines);
+  if (isJunkTitle(title)) return null; // reject junk CTA posts
+  return { id, title, poster, audio: parseAudio(lines), qualities, messageId: 0 };
 }
 
 // Check if a URL is a Telegram CDN URL (not usable in browsers due to CORS/auth)
