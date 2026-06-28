@@ -1,7 +1,8 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { installedExtensionsTable, providerSourcesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { verifyAdminToken } from "../lib/adminAuth.js";
 import {
   FetchManifestQueryParams,
   InstallExtensionBody,
@@ -25,6 +26,15 @@ import {
 } from "../services/extensionExecutor";
 
 const router = Router();
+
+function requireToken(req: Request, res: Response): boolean {
+  const token = req.headers["x-admin-token"] as string | undefined;
+  if (!verifyAdminToken(token)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
 
 // ── Manifest ──────────────────────────────────────────────────────
 router.get("/manifest", async (req, res) => {
@@ -87,8 +97,9 @@ router.get("/extensions", async (req, res) => {
   }
 });
 
-// ── Install ───────────────────────────────────────────────────────
+// ── Install (auth required) ───────────────────────────────────────
 router.post("/extensions/install", async (req, res) => {
+  if (!requireToken(req, res)) return;
   try {
     const parsed = InstallExtensionBody.safeParse(req.body);
     if (!parsed.success) {
@@ -104,7 +115,6 @@ router.post("/extensions/install", async (req, res) => {
       return;
     }
 
-    // Check if already installed
     const existing = await db.select().from(installedExtensionsTable)
       .where(eq(installedExtensionsTable.value, data.value)).limit(1);
     if (existing.length > 0) {
@@ -132,7 +142,6 @@ router.post("/extensions/install", async (req, res) => {
       modules.map(fetchModule)
     );
 
-    // Extract author from source URL
     const urlParts = source.url.replace("https://raw.githubusercontent.com/", "").split("/");
     const sourceAuthor = urlParts[0] ?? source.name;
 
@@ -170,8 +179,9 @@ router.post("/extensions/install", async (req, res) => {
   }
 });
 
-// ── Set Base URL ──────────────────────────────────────────────────
+// ── Set Base URL (auth required) ──────────────────────────────────
 router.patch("/extensions/:id/baseUrl", async (req, res) => {
+  if (!requireToken(req, res)) return;
   try {
     const paramsParsed = SetExtensionBaseUrlParams.safeParse({ id: Number(req.params.id) });
     if (!paramsParsed.success) {
@@ -193,8 +203,9 @@ router.patch("/extensions/:id/baseUrl", async (req, res) => {
   }
 });
 
-// ── Uninstall ─────────────────────────────────────────────────────
+// ── Uninstall (auth required) ─────────────────────────────────────
 router.delete("/extensions/:id", async (req, res) => {
+  if (!requireToken(req, res)) return;
   try {
     const parsed = UninstallExtensionParams.safeParse({ id: Number(req.params.id) });
     if (!parsed.success) {
