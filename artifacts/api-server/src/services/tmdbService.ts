@@ -130,6 +130,7 @@ function cleanTitle(raw: string): string {
   return decodeHtmlEntities(raw)
     .replace(/\b(480p|720p|1080p|4[Kk]|HDR|BluRay|WEB.?DL|WEBRip|HDCAM|CAM|HEVC|x264|x265|HIN|ENG|TAM|TEL|MAL|KAN|KOR)\b/gi, "")
     .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Dubbed|Subtitles?|Audio|Multi|Dual)\b/gi, "")
+    .replace(/\b(Movie|Film|Full|Official|Trailer|Video|Song|Songs|OST)\b/gi, "")
     .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+|Part\s*\d+)\b/gi, "")
     .replace(/\(\d{4}\)/g, "").replace(/\[\d{4}\]/g, "")
     .replace(/[-_.]+/g, " ").replace(/\s+/g, " ").trim();
