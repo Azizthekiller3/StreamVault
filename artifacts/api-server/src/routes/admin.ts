@@ -1,10 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
-import { verifySecret } from "../lib/auth.js";
 import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
 import { enrichFromTmdb, clearTmdbCache, searchTmdbForAdmin, saveTitleOverride, deleteTitleOverride } from "../services/tmdbService.js";
 import { db, moviesTable, titleOverridesTable } from "@workspace/db";
-import { isNull, eq, or, like } from "drizzle-orm";
+import { isNull, eq, or } from "drizzle-orm";
 
 const router = Router();
 
@@ -167,13 +166,7 @@ router.post("/admin/bulk-enrich", async (req, res) => {
     const rows = await db
       .select()
       .from(moviesTable)
-      .where(or(
-      isNull(moviesTable.poster),
-      eq(moviesTable.poster, ""),
-      like(moviesTable.poster, "%telesco.pe%"),
-      like(moviesTable.poster, "%cdn.telegram%"),
-      like(moviesTable.poster, "%t.me/%")
-    ));
+      .where(or(isNull(moviesTable.poster), eq(moviesTable.poster, "")));
 
     const total = rows.length;
     let enriched = 0;
@@ -186,7 +179,13 @@ router.post("/admin/bulk-enrich", async (req, res) => {
         if (result?.poster && result.poster !== "N/A") {
           await db
             .update(moviesTable)
-            .set({ poster: result.poster })
+            .set({
+              poster: result.poster,
+              tmdbId: result.tmdbId,
+              tmdbType: result.mediaType,
+              confidence: result.confidence ?? null,
+              needsReview: (result.confidence ?? 100) < 60,
+            })
             .where(eq(moviesTable.messageId, row.messageId));
           const idx = seedMovies.findIndex((m) => m.id === row.messageId);
           if (idx >= 0) seedMovies[idx].poster = result.poster;
@@ -210,7 +209,9 @@ router.post("/admin/bulk-enrich", async (req, res) => {
 
 // POST /api/admin/backfill
 router.post("/admin/backfill", async (req, res) => {
-  if (!verifySecret(req.headers["x-backfill-secret"] as string | undefined)) {
+  const secret = req.headers["x-backfill-secret"] as string | undefined;
+  const expected = process.env.SESSION_SECRET;
+  if (!expected || secret !== expected) {
     res.status(401).json({ error: "Unauthorized — wrong admin key" });
     return;
   }
@@ -226,14 +227,21 @@ router.post("/admin/backfill", async (req, res) => {
       try {
         const result = await enrichFromTmdb(row.title, row.audio);
         const newPoster = result?.poster && result.poster !== "N/A" ? result.poster : null;
-        if (newPoster && newPoster !== row.poster) {
+        if (newPoster) {
           await db
             .update(moviesTable)
-            .set({ poster: newPoster })
+            .set({
+              poster: newPoster,
+              tmdbId: result!.tmdbId,
+              tmdbType: result!.mediaType,
+              confidence: result!.confidence ?? null,
+              needsReview: (result!.confidence ?? 100) < 60,
+            })
             .where(eq(moviesTable.messageId, row.messageId));
           const idx = seedMovies.findIndex((m) => m.id === row.messageId);
           if (idx >= 0) seedMovies[idx].poster = newPoster;
-          enriched++;
+          if (newPoster !== row.poster) enriched++;
+          else unchanged++;
         } else {
           unchanged++;
         }
@@ -248,6 +256,33 @@ router.post("/admin/backfill", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Admin backfill failed");
     res.status(500).json({ error: "Backfill failed" });
+  }
+});
+
+// GET /api/admin/needs-review — movies flagged as low-confidence TMDB match
+router.get("/admin/needs-review", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  try {
+    const rows = await db
+      .select()
+      .from(moviesTable)
+      .where(eq(moviesTable.needsReview, true));
+    res.json({
+      ok: true,
+      total: rows.length,
+      movies: rows.map((r) => ({
+        messageId: r.messageId,
+        title: r.title,
+        audio: r.audio,
+        poster: r.poster,
+        tmdbId: r.tmdbId,
+        tmdbType: r.tmdbType,
+        confidence: r.confidence,
+      })),
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to get needs-review movies");
+    res.status(500).json({ error: "Failed to get needs-review movies" });
   }
 });
 
