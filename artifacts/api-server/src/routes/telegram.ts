@@ -431,4 +431,54 @@ router.post('/telegram/sync-deletions', async (req, res) => {
   }
 });
 
+// ── Admin: fix HTML-encoded titles already stored in DB ───────────────────
+// Decodes &nbsp;, &amp;, etc. in existing stored titles and re-enriches TMDB
+// for any movie whose title changed (broken posters due to wrong TMDB lookup).
+router.post('/telegram/fix-titles', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const { db, moviesTable } = await import('@workspace/db');
+  const { eq } = await import('drizzle-orm');
+
+  function decodeEnt(str: string): string {
+    return str
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;/gi, "'")
+      .replace(/&hellip;/gi, "…")
+      .replace(/&mdash;/gi, "—")
+      .replace(/&ndash;/gi, "–")
+      .replace(/&#(\d+);/g, (_: string, n: string) => String.fromCharCode(parseInt(n, 10)))
+      .trim();
+  }
+
+  try {
+    const allRows = await db.select({ id: moviesTable.messageId, title: moviesTable.title }).from(moviesTable);
+    const toFix = allRows.filter((r) => {
+      const decoded = decodeEnt(r.title ?? "");
+      return decoded !== (r.title ?? "").trim();
+    });
+
+    let fixed = 0;
+    const samples: Array<{ old: string | null; new: string }> = [];
+    for (const row of toFix) {
+      const newTitle = decodeEnt(row.title ?? "");
+      await db.update(moviesTable).set({ title: newTitle, poster: null }).where(eq(moviesTable.messageId, row.id));
+      // Update seedMovies in memory too
+      const idx = seedMovies.findIndex((m) => m.id === row.id);
+      if (idx >= 0) { seedMovies[idx].title = newTitle; seedMovies[idx].poster = undefined; }
+      if (samples.length < 10) samples.push({ old: row.title, new: newTitle });
+      fixed++;
+    }
+
+    req.log.info({ fixed, total: allRows.length }, '[fix-titles] complete');
+    res.json({ ok: true, fixed, total: allRows.length, samples });
+  } catch (err) {
+    req.log.error({ err }, '[fix-titles] failed');
+    res.status(500).json({ error: 'fix-titles failed' });
+  }
+});
+
 export default router;
