@@ -432,53 +432,45 @@ router.post('/telegram/sync-deletions', async (req, res) => {
 });
 
 // ── Admin: fix HTML-encoded titles already stored in DB ───────────────────
-// Decodes &nbsp;, &amp;, etc. in existing stored titles, then resets poster
-// to "" so the background enricher will fetch the correct TMDB poster.
-// poster column is NOT NULL DEFAULT '' — never set to null.
+// Uses raw SQL REPLACE() in Postgres — no ORM, no type issues.
+// Decodes &nbsp; &amp; &lt; &gt; &quot; in stored titles.
+// Resets poster to '' for affected rows so enrichment re-runs automatically.
 router.post('/telegram/fix-titles', async (req, res) => {
   if (!requireSecret(req, res)) return;
-  const { db, moviesTable } = await import('@workspace/db');
-  const { eq } = await import('drizzle-orm');
-
-  function decodeEnt(str: string): string {
-    return str
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&quot;/gi, '"')
-      .replace(/&apos;/gi, "'")
-      .replace(/&hellip;/gi, "…")
-      .replace(/&mdash;/gi, "—")
-      .replace(/&ndash;/gi, "–")
-      .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10)))
-      .trim();
-  }
-
   try {
-    // messageId is TEXT in DB — row.id will be a string
-    const allRows = await db
-      .select({ id: moviesTable.messageId, title: moviesTable.title })
-      .from(moviesTable);
+    const { pool } = await import('@workspace/db');
+    const result = await pool.query(`
+      WITH updated AS (
+        UPDATE telegram_movies
+        SET
+          title = TRIM(
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(title,
+              '&nbsp;', ' '),
+              '&amp;', '&'),
+              '&lt;', '<'),
+              '&gt;', '>'),
+              '&quot;', '"'),
+              '&apos;', ''''),
+              '&hellip;', '…'),
+              '&mdash;', '—'),
+              '&ndash;', '–')
+          ),
+          poster = ''
+        WHERE title LIKE '%&%'
+        RETURNING message_id, title
+      )
+      SELECT * FROM updated
+    `);
 
-    const toFix = allRows.filter((r) => decodeEnt(r.title) !== r.title.trim());
-
-    const samples: Array<{ old: string; new: string }> = [];
-    for (const row of toFix) {
-      const newTitle = decodeEnt(row.title);
-      // Reset poster to "" so enrichPosterInBackground will re-enrich it
-      await db
-        .update(moviesTable)
-        .set({ title: newTitle, poster: "" })
-        .where(eq(moviesTable.messageId, row.id));
-      // Sync in-memory store
-      const idx = seedMovies.findIndex((m) => m.id === row.id);
-      if (idx >= 0) { seedMovies[idx].title = newTitle; seedMovies[idx].poster = ""; }
-      if (samples.length < 15) samples.push({ old: row.title, new: newTitle });
+    // Sync fixed titles into in-memory seedMovies
+    for (const row of result.rows) {
+      const idx = seedMovies.findIndex((m) => m.id === row.message_id);
+      if (idx >= 0) { seedMovies[idx].title = row.title; seedMovies[idx].poster = ''; }
     }
 
-    req.log.info({ fixed: toFix.length, total: allRows.length }, '[fix-titles] complete');
-    res.json({ ok: true, fixed: toFix.length, total: allRows.length, samples });
+    const samples = result.rows.slice(0, 15).map((r: {message_id: string; title: string}) => r.title);
+    req.log.info({ fixed: result.rowCount, }, '[fix-titles] complete');
+    res.json({ ok: true, fixed: result.rowCount, samples });
   } catch (err) {
     req.log.error({ err }, '[fix-titles] failed');
     res.status(500).json({ error: String(err) });
