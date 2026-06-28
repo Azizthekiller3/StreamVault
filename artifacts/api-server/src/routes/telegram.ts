@@ -432,8 +432,9 @@ router.post('/telegram/sync-deletions', async (req, res) => {
 });
 
 // ── Admin: fix HTML-encoded titles already stored in DB ───────────────────
-// Decodes &nbsp;, &amp;, etc. in existing stored titles and re-enriches TMDB
-// for any movie whose title changed (broken posters due to wrong TMDB lookup).
+// Decodes &nbsp;, &amp;, etc. in existing stored titles, then resets poster
+// to "" so the background enricher will fetch the correct TMDB poster.
+// poster column is NOT NULL DEFAULT '' — never set to null.
 router.post('/telegram/fix-titles', async (req, res) => {
   if (!requireSecret(req, res)) return;
   const { db, moviesTable } = await import('@workspace/db');
@@ -450,35 +451,39 @@ router.post('/telegram/fix-titles', async (req, res) => {
       .replace(/&hellip;/gi, "…")
       .replace(/&mdash;/gi, "—")
       .replace(/&ndash;/gi, "–")
-      .replace(/&#(\d+);/g, (_: string, n: string) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&#(\d+);/g, (_m: string, n: string) => String.fromCharCode(parseInt(n, 10)))
       .trim();
   }
 
   try {
-    const allRows = await db.select({ id: moviesTable.messageId, title: moviesTable.title }).from(moviesTable);
-    const toFix = allRows.filter((r) => {
-      const decoded = decodeEnt(r.title ?? "");
-      return decoded !== (r.title ?? "").trim();
-    });
+    // messageId is TEXT in DB — row.id will be a string
+    const allRows = await db
+      .select({ id: moviesTable.messageId, title: moviesTable.title })
+      .from(moviesTable);
 
-    let fixed = 0;
-    const samples: Array<{ old: string | null; new: string }> = [];
+    const toFix = allRows.filter((r) => decodeEnt(r.title) !== r.title.trim());
+
+    const samples: Array<{ old: string; new: string }> = [];
     for (const row of toFix) {
-      const newTitle = decodeEnt(row.title ?? "");
-      await db.update(moviesTable).set({ title: newTitle, poster: null }).where(eq(moviesTable.messageId, row.id));
-      // Update seedMovies in memory too
+      const newTitle = decodeEnt(row.title);
+      // Reset poster to "" so enrichPosterInBackground will re-enrich it
+      await db
+        .update(moviesTable)
+        .set({ title: newTitle, poster: "" })
+        .where(eq(moviesTable.messageId, row.id));
+      // Sync in-memory store
       const idx = seedMovies.findIndex((m) => m.id === row.id);
-      if (idx >= 0) { seedMovies[idx].title = newTitle; seedMovies[idx].poster = undefined; }
-      if (samples.length < 10) samples.push({ old: row.title, new: newTitle });
-      fixed++;
+      if (idx >= 0) { seedMovies[idx].title = newTitle; seedMovies[idx].poster = ""; }
+      if (samples.length < 15) samples.push({ old: row.title, new: newTitle });
     }
 
-    req.log.info({ fixed, total: allRows.length }, '[fix-titles] complete');
-    res.json({ ok: true, fixed, total: allRows.length, samples });
+    req.log.info({ fixed: toFix.length, total: allRows.length }, '[fix-titles] complete');
+    res.json({ ok: true, fixed: toFix.length, total: allRows.length, samples });
   } catch (err) {
     req.log.error({ err }, '[fix-titles] failed');
-    res.status(500).json({ error: 'fix-titles failed' });
+    res.status(500).json({ error: String(err) });
   }
 });
+
 
 export default router;
