@@ -343,31 +343,35 @@ router.post('/telegram/re-enrich', async (req, res) => {
 
 
 // ── Admin: remove movies with junk/CTA titles ────────────────────────────
-// Junk titles: "Watch Online & Download", "Unknown Title", etc.
-// These sneak in when a post has Terabox links but no parseable movie title.
+// Works directly on the DB so it runs even on cold start (empty seedMovies).
 router.post('/telegram/purge-junk', async (req, res) => {
   if (!requireSecret(req, res)) return;
   const JUNK_RE = /^(watch.?online|watch.?now|stream.?now|download|click.?here|enjoy.?now|subscribe|unknown title|movie|film|video|series)/i;
   const { db, moviesTable } = await import('@workspace/db');
+  const { inArray } = await import('drizzle-orm');
   try {
-    // Remove from in-memory store
-    const before = seedMovies.length;
-    const junkIds = seedMovies
-      .filter((m) => JUNK_RE.test(m.title.trim()) || m.title.trim().length < 3)
-      .map((m) => m.id);
-    for (const id of junkIds) {
-      const idx = seedMovies.findIndex((m) => m.id === id);
-      if (idx >= 0) seedMovies.splice(idx, 1);
-    }
-    // Remove from DB
+    // Scan all DB titles to find junk
+    const allRows = await db.select({ id: moviesTable.messageId, title: moviesTable.title }).from(moviesTable);
+    const junkRows = allRows.filter((r) => JUNK_RE.test((r.title ?? '').trim()) || (r.title ?? '').trim().length < 3);
+    const junkIds = junkRows.map((r) => r.id);
+
+    // Delete from DB in batches of 500
     let dbDeleted = 0;
-    for (const id of junkIds) {
-      const { eq } = await import('drizzle-orm');
-      await db.delete(moviesTable).where(eq(moviesTable.messageId, id)).catch(() => {});
-      dbDeleted++;
+    for (let i = 0; i < junkIds.length; i += 500) {
+      const batch = junkIds.slice(i, i + 500);
+      await db.delete(moviesTable).where(inArray(moviesTable.messageId, batch));
+      dbDeleted += batch.length;
     }
-    req.log.info({ removed: junkIds.length, before, after: seedMovies.length }, '[purge-junk] complete');
-    res.json({ ok: true, removed: junkIds.length, titles: junkIds.slice(0, 10) });
+
+    // Prune seedMovies too
+    const junkSet = new Set(junkIds);
+    for (let i = seedMovies.length - 1; i >= 0; i--) {
+      if (junkSet.has(seedMovies[i].messageId)) seedMovies.splice(i, 1);
+    }
+
+    const sampleTitles = junkRows.map((r) => r.title).slice(0, 10);
+    req.log.info({ removed: dbDeleted, total: allRows.length }, '[purge-junk] complete');
+    res.json({ ok: true, removed: dbDeleted, sampleTitles });
   } catch (err) {
     req.log.error({ err }, '[purge-junk] failed');
     res.status(500).json({ error: 'purge-junk failed' });
