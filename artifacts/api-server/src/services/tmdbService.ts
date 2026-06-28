@@ -106,6 +106,12 @@ function cleanTitle(raw: string): string {
     .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Dubbed|Subtitles?|Audio|Multi|Dual)\b/gi, "")
     // Episode / season patterns
     .replace(/\b(S\d{2}E?\d*|E\d{2}|Season\s*\d+|Episode\s*\d+|Part\s*\d+)\b/gi, "")
+    // Strip common channel-post media-type suffixes that aren't part of the real title
+    // e.g. "F1 THE MOVIE (2025)" → "F1", "BIGG BOSS THE SERIES" → "BIGG BOSS"
+    // Use admin title override for genuine exceptions (Transformers: The Movie 1986)
+    .replace(/\bthe\s+movie\b/gi, "")
+    .replace(/\bthe\s+series\b/gi, "")
+    .replace(/\bthe\s+film\b/gi, "")
     // Bare 4-digit years (parens version already handled above so no orphan "()")
     .replace(/\b(19[5-9]\d|20[0-3]\d)\b/g, "")
     // Normalize separators and audio connectors
