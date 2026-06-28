@@ -43,6 +43,16 @@ function cleanDisplayTitle(raw: string): string {
     .trim();
 }
 
+/** Split a cleaned title into display name + year, e.g. "Inception 2010" → {name:"Inception", year:"2010"} */
+function parseTitleAndYear(raw: string): { name: string; year: string | null } {
+  const cleaned = cleanDisplayTitle(raw);
+  const m = cleaned.match(/\b(19[5-9]\d|20[0-3]\d)\b/);
+  if (!m) return { name: cleaned, year: null };
+  const year = m[1];
+  const name = cleaned.replace(year, "").replace(/[()\[\]]/g, "").replace(/\s{2,}/g, " ").trim();
+  return { name, year };
+}
+
 type Category = "All" | "Bollywood" | "Hollywood" | "South Indian" | "Web Series" | "Netflix";
 const CATS: Category[] = ["All", "Bollywood", "Hollywood", "South Indian", "Web Series", "Netflix"];
 
@@ -51,20 +61,12 @@ function applyFilter(movies: TelegramMovie[], cat: Category, q: string): Telegra
     ? movies.filter((m) => m.title.toLowerCase().includes(q.toLowerCase()))
     : [...movies];
   switch (cat) {
-    case "Bollywood":
-      return r.filter((m) => /hindi/i.test(m.audio || ""));
-    case "Hollywood":
-      return r.filter(
-        (m) => /english/i.test(m.audio || "") && !/hindi|tamil|telugu|malayalam|kannada/i.test(m.audio || "")
-      );
-    case "South Indian":
-      return r.filter((m) => /tamil|telugu|malayalam|kannada/i.test(m.audio || ""));
-    case "Web Series":
-      return r.filter((m) => isSeries(m.title));
-    case "Netflix":
-      return r.filter((m) => /netflix/i.test(m.title));
-    default:
-      return r;
+    case "Bollywood":   return r.filter((m) => /hindi/i.test(m.audio || ""));
+    case "Hollywood":   return r.filter((m) => /english/i.test(m.audio || "") && !/hindi|tamil|telugu|malayalam|kannada/i.test(m.audio || ""));
+    case "South Indian":return r.filter((m) => /tamil|telugu|malayalam|kannada/i.test(m.audio || ""));
+    case "Web Series":  return r.filter((m) => isSeries(m.title));
+    case "Netflix":     return r.filter((m) => /netflix/i.test(m.title));
+    default:            return r;
   }
 }
 
@@ -80,9 +82,8 @@ function Pagination({ page, total, onChange }: { page: number; total: number; on
     if (page < total - 2) pages.push("…");
     pages.push(total);
   }
-
   return (
-    <div className="flex items-center justify-center gap-1.5 py-6 flex-wrap">
+    <div className="flex items-center justify-center gap-1.5 py-6 flex-wrap px-4">
       <button
         onClick={() => onChange(page - 1)}
         disabled={page === 1}
@@ -93,18 +94,16 @@ function Pagination({ page, total, onChange }: { page: number; total: number; on
       </button>
       {pages.map((p, i) =>
         p === "…" ? (
-          <span key={`ellipsis-${i}`} className="w-9 h-9 flex items-center justify-center text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>
-            …
-          </span>
+          <span key={`el-${i}`} className="w-9 h-9 flex items-center justify-center text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>…</span>
         ) : (
           <button
             key={p}
             onClick={() => onChange(p as number)}
-            className="w-9 h-9 rounded-lg text-sm font-semibold transition-all"
+            className="w-9 h-9 rounded-lg text-sm font-bold transition-all"
             style={{
               background: page === p ? "#dc2626" : "#1e1e1e",
-              color: page === p ? "#fff" : "rgba(255,255,255,0.7)",
-              border: page === p ? "1px solid #dc2626" : "1px solid transparent",
+              color: page === p ? "#fff" : "rgba(255,255,255,0.65)",
+              border: page === p ? "1.5px solid #dc2626" : "1px solid transparent",
             }}
           >
             {p}
@@ -132,11 +131,9 @@ export default function Home() {
 
   const allMovies = (data?.movies ?? []).slice().sort((a, b) => (b.messageId ?? 0) - (a.messageId ?? 0));
   const filtered = useMemo(() => applyFilter(allMovies, cat, search), [allMovies, cat, search]);
-
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageMovies = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Reset to page 1 when filter or search changes
   useEffect(() => { setPage(1); }, [cat, search]);
 
   function handlePageChange(p: number) {
@@ -145,14 +142,15 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: "#111111" }}>
+    <div className="min-h-screen pb-24" style={{ background: "#0f0f0f" }}>
+
       {/* ── Header ── */}
-      <div className="flex items-center justify-between px-4 pt-5 pb-3">
+      <div className="flex items-center justify-between px-4 pt-5 pb-4">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#dc2626" }}>
             <Clapperboard className="w-4 h-4 text-white" />
           </div>
-          <span className="text-white font-extrabold text-xl tracking-wide">
+          <span className="font-extrabold text-xl tracking-wide text-white">
             Stream<span style={{ color: "#dc2626" }}>Vault</span>
           </span>
         </div>
@@ -162,26 +160,26 @@ export default function Home() {
       </div>
 
       {/* ── Search ── */}
-      <div className="px-4 mb-4 flex gap-2">
+      <div className="px-4 mb-5 flex gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)}
           placeholder="Search movies..."
-          className="flex-1 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none"
-          style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.08)" }}
+          className="flex-1 rounded-xl px-4 py-3 text-sm text-white focus:outline-none"
+          style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}
         />
         <button
-          className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
+          className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
           style={{ background: "#dc2626" }}
           onClick={() => search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)}
         >
-          <SearchIcon className="w-4 h-4 text-white" />
+          <SearchIcon className="w-5 h-5 text-white" />
         </button>
       </div>
 
       {/* ── Category pills ── */}
-      <div className="px-4 mb-5 flex flex-wrap gap-2">
+      <div className="px-4 mb-6 flex flex-wrap gap-2">
         {CATS.map((c) => (
           <button
             key={c}
@@ -189,8 +187,8 @@ export default function Home() {
             className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
             style={{
               background: cat === c ? "#dc2626" : "transparent",
-              border: cat === c ? "1px solid #dc2626" : "1px solid rgba(255,255,255,0.22)",
-              color: cat === c ? "#fff" : "rgba(255,255,255,0.7)",
+              border: cat === c ? "1px solid #dc2626" : "1px solid rgba(255,255,255,0.2)",
+              color: cat === c ? "#fff" : "rgba(255,255,255,0.65)",
             }}
           >
             {c}
@@ -200,22 +198,22 @@ export default function Home() {
           href={TELEGRAM_CHANNEL}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium"
-          style={{ border: "1px solid rgba(255,255,255,0.22)", color: "rgba(255,255,255,0.7)" }}
+          className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium"
+          style={{ border: "1px solid rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.65)" }}
         >
           Join Telegram ✈️
         </a>
       </div>
 
-      {/* ── Section header with page count ── */}
+      {/* ── Section header ── */}
       <div className="flex items-center justify-between px-4 mb-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <div className="w-1 h-6 rounded-full" style={{ background: "#dc2626" }} />
           <span className="text-white font-bold text-base">🔥 Latest Releases</span>
         </div>
         {!isLoading && filtered.length > 0 && (
-          <span className="text-xs font-mono" style={{ color: "rgba(255,255,255,0.35)" }}>
-            Page {page}/{totalPages} · {filtered.length} titles
+          <span className="text-xs font-mono" style={{ color: "rgba(255,255,255,0.3)" }}>
+            {page}/{totalPages} · {filtered.length}
           </span>
         )}
       </div>
@@ -224,74 +222,92 @@ export default function Home() {
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 px-4">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-xl" style={{ aspectRatio: "2/3", background: "#1e1e1e" }} />
+            <div key={i} className="animate-pulse rounded-2xl" style={{ aspectRatio: "2/3", background: "#1a1a1a" }} />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-center mt-16 text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>
-          No movies found.
-        </p>
+        <p className="text-center mt-20 text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>No movies found.</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 px-4">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-4">
             {pageMovies.map((movie, i) => {
-              const displayTitle = cleanDisplayTitle(movie.title);
+              const { name, year } = parseTitleAndYear(movie.title);
+              const series = isSeries(movie.title);
               return (
                 <motion.div
                   key={movie.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(i * 0.025, 0.3) }}
                   className="cursor-pointer"
                   onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
                 >
-                  <div className="relative rounded-xl overflow-hidden" style={{ aspectRatio: "2/3", background: "#1a1a1a" }}>
+                  {/* ── Poster card ── */}
+                  <div
+                    className="relative rounded-2xl overflow-hidden"
+                    style={{
+                      aspectRatio: "2/3",
+                      background: "#1a1a1a",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
                     {movie.poster ? (
                       <img
                         src={movie.poster}
-                        alt={displayTitle}
+                        alt={name}
                         className="w-full h-full object-cover"
                         loading="lazy"
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = "none";
-                          const next = e.currentTarget.nextElementSibling as HTMLElement | null;
-                          if (next) next.style.display = "flex";
+                          const ph = e.currentTarget.nextElementSibling as HTMLElement | null;
+                          if (ph) ph.style.display = "flex";
                         }}
                       />
                     ) : null}
+
+                    {/* Placeholder */}
                     <div
                       className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3"
                       style={{
                         display: movie.poster ? "none" : "flex",
-                        background: "linear-gradient(135deg, #1f1f1f 0%, #2a1a1a 100%)",
+                        background: "linear-gradient(135deg,#1c1c1c 0%,#2b1818 100%)",
                       }}
                     >
-                      <Film className="w-8 h-8 shrink-0" style={{ color: "#dc2626", opacity: 0.7 }} />
-                      <p className="text-center leading-snug line-clamp-4 font-medium text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
-                        {displayTitle}
+                      <Film className="w-8 h-8 shrink-0" style={{ color: "#dc2626", opacity: 0.6 }} />
+                      <p className="text-center leading-snug line-clamp-4 text-xs font-medium" style={{ color: "rgba(255,255,255,0.7)" }}>
+                        {name}
                       </p>
                     </div>
-                    <div
-                      className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white"
-                      style={{ background: isSeries(movie.title) ? "#7c3aed" : "#dc2626" }}
+
+                    {/* Badge */}
+                    <span
+                      className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] font-bold text-white tracking-wide"
+                      style={{ background: series ? "#7c3aed" : "#dc2626" }}
                     >
-                      {isSeries(movie.title) ? "SERIES" : "MOVIE"}
-                    </div>
+                      {series ? "SERIES" : "MOVIE"}
+                    </span>
                   </div>
-                  <p className="text-xs mt-1.5 leading-snug line-clamp-2 font-medium" style={{ color: "rgba(255,255,255,0.85)" }}>
-                    {displayTitle}
-                  </p>
+
+                  {/* ── Title + year below card ── */}
+                  <div className="mt-2 px-0.5">
+                    <p className="text-sm font-semibold leading-snug line-clamp-2" style={{ color: "#ffffff" }}>
+                      {name}
+                    </p>
+                    {year && (
+                      <p className="text-xs mt-0.5 font-medium" style={{ color: "rgba(255,255,255,0.4)" }}>
+                        ({year})
+                      </p>
+                    )}
+                  </div>
                 </motion.div>
               );
             })}
           </div>
 
-          {/* ── Pagination ── */}
           <Pagination page={page} total={totalPages} onChange={handlePageChange} />
 
-          {/* ── Footer note ── */}
-          <p className="text-center pb-4 text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>
-            © StreamVault · We do not claim ownership of any content.
+          <p className="text-center pb-6 text-xs px-4" style={{ color: "rgba(255,255,255,0.18)" }}>
+            © StreamVault · We do not claim ownership of any content on this website.
           </p>
         </>
       )}
