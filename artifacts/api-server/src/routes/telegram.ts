@@ -478,4 +478,27 @@ router.post('/telegram/fix-titles', async (req, res) => {
 });
 
 
+// ── Admin: reset poster to "" for a specific title pattern (triggers re-enrich) ──
+router.post('/telegram/reset-poster', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const titlePattern = (req.query['title'] as string) || '';
+  if (!titlePattern) { res.status(400).json({ error: 'title query param required' }); return; }
+  try {
+    const { pool } = await import('@workspace/db');
+    const result = await pool.query(
+      `UPDATE telegram_movies SET poster = '' WHERE title ILIKE $1 RETURNING message_id, title`,
+      [`%${titlePattern}%`]
+    );
+    for (const row of result.rows) {
+      const idx = seedMovies.findIndex((m) => m.id === row.message_id);
+      if (idx >= 0) seedMovies[idx].poster = '';
+    }
+    req.log.info({ reset: result.rowCount, pattern: titlePattern }, '[reset-poster] done');
+    res.json({ ok: true, reset: result.rowCount, titles: result.rows.map((r: {title:string}) => r.title) });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+
 export default router;
