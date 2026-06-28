@@ -216,6 +216,15 @@ router.post("/telegram/parse-and-add", async (req, res) => {
 });
 
 router.post("/telegram/webhook", async (req, res) => {
+  // Block fake/hacker requests — only Telegram knows this secret
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const received = req.headers["x-telegram-bot-api-secret-token"];
+    if (received !== webhookSecret) {
+      res.status(403).json({ ok: false });
+      return;
+    }
+  }
   res.json({ ok: true });
   try {
     const update = req.body as {
