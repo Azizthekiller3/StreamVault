@@ -1,17 +1,23 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 function secret(): string {
-  return process.env.SESSION_SECRET || "dev-fallback-secret";
+  const s = process.env.SESSION_SECRET;
+  if (!s) throw new Error("SESSION_SECRET is not set — admin access disabled");
+  return s;
 }
 
-/** Derive a static admin token from SESSION_SECRET. Cannot be forged without the secret. */
 export function generateAdminToken(): string {
   return createHmac("sha256", secret()).update("flixnest-admin-v1").digest("hex");
 }
 
 export function verifyAdminToken(token: string | undefined): boolean {
   if (!token) return false;
-  const expected = generateAdminToken();
+  let expected: string;
+  try {
+    expected = generateAdminToken();
+  } catch {
+    return false;
+  }
   try {
     if (token.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(token, "hex"), Buffer.from(expected, "hex"));
@@ -21,10 +27,13 @@ export function verifyAdminToken(token: string | undefined): boolean {
 }
 
 export function verifyAdminCredentials(username: string, password: string): boolean {
-  // If explicit credentials are set, use them; otherwise fall back to admin / SESSION_SECRET
   const eu = process.env.ADMIN_USERNAME || "admin";
-  const ep = process.env.ADMIN_PASSWORD || process.env.SESSION_SECRET || "";
-  if (!ep) return false;
+  let ep: string;
+  try {
+    ep = process.env.ADMIN_PASSWORD || secret();
+  } catch {
+    return false;
+  }
   try {
     const pad = (a: string, b: string) =>
       [Buffer.from(a.padEnd(b.length, "\0")), Buffer.from(b.padEnd(a.length, "\0"))];
@@ -36,4 +45,3 @@ export function verifyAdminCredentials(username: string, password: string): bool
     return false;
   }
 }
-
