@@ -6,7 +6,7 @@ import { logger } from "./lib/logger.js";
 
 const app: Express = express();
 
-// ── Security headers (helmet-equivalent, no extra package) ─────────────────
+// ── Security headers ───────────────────────────────────────────────────────
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.removeHeader("X-Powered-By");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -20,33 +20,30 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ── CORS — restrict to known frontend origins ──────────────────────────────
+// ── CORS ───────────────────────────────────────────────────────────────────
+// Allow only the configured frontend origin plus known dev origins.
+// Set ALLOWED_FRONTEND_ORIGIN on Koyeb to your exact Vercel URL.
+const CONFIGURED_ORIGIN = process.env.ALLOWED_FRONTEND_ORIGIN ?? "";
+
 const ALLOWED_ORIGINS = new Set([
-  // Vercel production — update this after first Vercel deploy
   "https://streamvault.vercel.app",
   "https://flixnest.vercel.app",
-  // Local dev
+  "https://streamvault-beta-silk.vercel.app",
   "http://localhost:5173",
   "http://localhost:3000",
   "http://localhost:80",
-  // Replit preview (wildcard handled below)
+  ...(CONFIGURED_ORIGIN ? [CONFIGURED_ORIGIN] : []),
 ]);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow same-origin / non-browser requests (curl, Koyeb health checks)
       if (!origin) return callback(null, true);
-      // Allow any *.replit.app or *.replit.dev for dev previews
       if (origin.endsWith(".replit.app") || origin.endsWith(".replit.dev")) {
         return callback(null, true);
       }
-      // Allow any *.vercel.app for preview deployments
-      if (origin.endsWith(".vercel.app")) return callback(null, true);
-      // Allow any *.koyeb.app for internal health checks
       if (origin.endsWith(".koyeb.app")) return callback(null, true);
       if (ALLOWED_ORIGINS.has(origin)) return callback(null, true);
-      // Return null (block) rather than an Error (which causes 500)
       callback(null, false);
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -74,12 +71,11 @@ app.use(
   }),
 );
 
-// ── Body parsing — explicit size limits ────────────────────────────────────
+// ── Body parsing ───────────────────────────────────────────────────────────
 app.use(express.json({ limit: "50kb" }));
 app.use(express.urlencoded({ extended: true, limit: "50kb" }));
 
 // ── In-memory rate limiter ─────────────────────────────────────────────────
-// Keyed by IP. Sliding window per route group.
 interface RateWindow { count: number; resetAt: number }
 const rateLimitStore = new Map<string, RateWindow>();
 
@@ -106,7 +102,6 @@ function rateLimit(maxRequests: number, windowMs: number) {
   };
 }
 
-// Purge stale entries every 10 minutes to prevent memory leak
 setInterval(() => {
   const now = Date.now();
   for (const [key, val] of rateLimitStore) {
@@ -114,8 +109,13 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-// ── Rate limit comment endpoints (20 per IP per minute) ───────────────────
+// 20 per IP per minute for comments
 app.use("/api/comments", rateLimit(20, 60 * 1000));
+// 10 per IP per minute for admin login (brute-force guard)
+app.use("/api/admin/login", rateLimit(10, 60 * 1000));
+// 5 per IP per 5 minutes for heavy admin ops
+app.use("/api/admin/backfill", rateLimit(5, 5 * 60 * 1000));
+app.use("/api/admin/enrich", rateLimit(5, 5 * 60 * 1000));
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 app.use("/api", router);
