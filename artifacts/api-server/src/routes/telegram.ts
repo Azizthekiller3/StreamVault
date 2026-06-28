@@ -341,4 +341,90 @@ router.post('/telegram/re-enrich', async (req, res) => {
   })();
 });
 
+
+// ── Admin: remove movies with junk/CTA titles ────────────────────────────
+// Junk titles: "Watch Online & Download", "Unknown Title", etc.
+// These sneak in when a post has Terabox links but no parseable movie title.
+router.post('/telegram/purge-junk', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const JUNK_RE = /^(watch.?online|watch.?now|stream.?now|download|click.?here|enjoy.?now|subscribe|unknown title|movie|film|video|series)/i;
+  const { db, moviesTable } = await import('@workspace/db');
+  try {
+    // Remove from in-memory store
+    const before = seedMovies.length;
+    const junkIds = seedMovies
+      .filter((m) => JUNK_RE.test(m.title.trim()) || m.title.trim().length < 3)
+      .map((m) => m.id);
+    for (const id of junkIds) {
+      const idx = seedMovies.findIndex((m) => m.id === id);
+      if (idx >= 0) seedMovies.splice(idx, 1);
+    }
+    // Remove from DB
+    let dbDeleted = 0;
+    for (const id of junkIds) {
+      const { eq } = await import('drizzle-orm');
+      await db.delete(moviesTable).where(eq(moviesTable.messageId, id)).catch(() => {});
+      dbDeleted++;
+    }
+    req.log.info({ removed: junkIds.length, before, after: seedMovies.length }, '[purge-junk] complete');
+    res.json({ ok: true, removed: junkIds.length, titles: junkIds.slice(0, 10) });
+  } catch (err) {
+    req.log.error({ err }, '[purge-junk] failed');
+    res.status(500).json({ error: 'purge-junk failed' });
+  }
+});
+
+// ── Admin: sync deletions — scrape N pages, remove DB entries no longer on channel ──
+// Telegram webhooks don't fire on deletions, so this is the only way to sync.
+// Only removes movies whose messageId falls WITHIN the scraped ID range.
+router.post('/telegram/sync-deletions', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const pages = Math.min(parseInt((req.query['pages'] as string) || '10', 10), 50);
+  try {
+    const { fetchChannelMovies } = await import('../services/telegramService.js');
+    const { db, moviesTable } = await import('@workspace/db');
+    const { eq, and, gte, lte } = await import('drizzle-orm');
+
+    // Scrape N pages to collect all currently-live message IDs
+    const liveIds = new Set<string>();
+    let minId = Infinity, maxId = 0;
+    let before: number | undefined;
+    for (let i = 0; i < pages; i++) {
+      const result = await fetchChannelMovies(before);
+      for (const m of result.movies) {
+        liveIds.add(m.id);
+        if (m.messageId > 0) {
+          if (m.messageId < minId) minId = m.messageId;
+          if (m.messageId > maxId) maxId = m.messageId;
+        }
+      }
+      if (!result.hasMore || result.movies.length === 0) break;
+      before = Math.min(...result.movies.filter(m => m.messageId > 0).map(m => m.messageId));
+    }
+
+    if (liveIds.size === 0) {
+      res.json({ ok: true, removed: 0, message: 'No live messages scraped — channel may be unreachable' });
+      return;
+    }
+
+    // Find DB movies whose messageId is in the scraped range but NOT in live set
+    const removed: string[] = [];
+    for (let i = seedMovies.length - 1; i >= 0; i--) {
+      const m = seedMovies[i];
+      const mid = m.messageId;
+      if (mid >= minId && mid <= maxId && !liveIds.has(m.id)) {
+        seedMovies.splice(i, 1);
+        removed.push(m.id);
+        await db.delete(moviesTable).where(eq(moviesTable.messageId, m.id)).catch(() => {});
+      }
+    }
+
+    req.log.info({ removed: removed.length, pages, liveIds: liveIds.size, range: `${minId}-${maxId}` }, '[sync-deletions] complete');
+    res.json({ ok: true, removed: removed.length, ids: removed.slice(0, 20), range: `${minId}-${maxId}`, liveScraped: liveIds.size });
+  } catch (err) {
+    req.log.error({ err }, '[sync-deletions] failed');
+    res.status(500).json({ error: 'sync-deletions failed' });
+  }
+});
+
 export default router;
