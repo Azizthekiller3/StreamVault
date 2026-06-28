@@ -1,11 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Search as SearchIcon, Menu, Film } from "lucide-react";
+import { Search as SearchIcon, Menu, Clapperboard, Film, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api-base";
 
 const TELEGRAM_CHANNEL = "https://t.me/backupchannek";
+const PAGE_SIZE = 20;
 
 interface TelegramMovie {
   id: string;
@@ -32,15 +33,8 @@ export function isSeries(title: string): boolean {
   return /\b(S\d{2}|Season|Series|E\d{2}|Episode|Web.?Series)\b/i.test(title);
 }
 
-/** Extract year (1950–2030) from raw title. */
-function extractYear(raw: string): string | null {
-  return raw.match(/\b(19[5-9]\d|20[0-3]\d)\b/)?.[1] ?? null;
-}
-
-/** Strip encoding/quality tags and return a clean human-readable title. */
 function cleanDisplayTitle(raw: string): string {
   return raw
-    .replace(/\b(19[5-9]\d|20[0-3]\d)\b/g, "")
     .replace(/\b(480p|720p|1080p|2160p|4[Kk]|HDR|BluRay|BDRip|BRRip|WEB.?DL|WEBRip|HDCAM|HDTC|CAM|HEVC|x\.?264|x\.?265|AAC|AC3|DD5\.1|DDP5\.1|Atmos|ESubs?|HIN|CHI|TEL|TAM|MAL|KAN|HC.?ESub|HQ|DVDRip|DVDScr|AMZN|DSNP|NF|ZEE5)\b/gi, "")
     .replace(/\b(Hindi|English|Tamil|Telugu|Malayalam|Kannada|Korean|Japanese|Chinese|Dual|Multi|Dubbed|Subtitles?|Audio|Line|Rip)\b/gi, "")
     .replace(/\b(WEB|DL|HD|CAM|TS|TC|SCR|R5)\b/g, "")
@@ -61,9 +55,7 @@ function applyFilter(movies: TelegramMovie[], cat: Category, q: string): Telegra
       return r.filter((m) => /hindi/i.test(m.audio || ""));
     case "Hollywood":
       return r.filter(
-        (m) =>
-          /english/i.test(m.audio || "") &&
-          !/hindi|tamil|telugu|malayalam|kannada/i.test(m.audio || "")
+        (m) => /english/i.test(m.audio || "") && !/hindi|tamil|telugu|malayalam|kannada/i.test(m.audio || "")
       );
     case "South Indian":
       return r.filter((m) => /tamil|telugu|malayalam|kannada/i.test(m.audio || ""));
@@ -76,22 +68,92 @@ function applyFilter(movies: TelegramMovie[], cat: Category, q: string): Telegra
   }
 }
 
+function Pagination({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
+  if (total <= 1) return null;
+  const pages: (number | "…")[] = [];
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push("…");
+    for (let i = Math.max(2, page - 1); i <= Math.min(total - 1, page + 1); i++) pages.push(i);
+    if (page < total - 2) pages.push("…");
+    pages.push(total);
+  }
+
+  return (
+    <div className="flex items-center justify-center gap-1.5 py-6 flex-wrap">
+      <button
+        onClick={() => onChange(page - 1)}
+        disabled={page === 1}
+        className="w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-30 transition-colors"
+        style={{ background: "#1e1e1e", color: "rgba(255,255,255,0.7)" }}
+      >
+        <ChevronLeft className="w-4 h-4" />
+      </button>
+      {pages.map((p, i) =>
+        p === "…" ? (
+          <span key={`ellipsis-${i}`} className="w-9 h-9 flex items-center justify-center text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p as number)}
+            className="w-9 h-9 rounded-lg text-sm font-semibold transition-all"
+            style={{
+              background: page === p ? "#dc2626" : "#1e1e1e",
+              color: page === p ? "#fff" : "rgba(255,255,255,0.7)",
+              border: page === p ? "1px solid #dc2626" : "1px solid transparent",
+            }}
+          >
+            {p}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onChange(page + 1)}
+        disabled={page === total}
+        className="w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-30 transition-colors"
+        style={{ background: "#1e1e1e", color: "rgba(255,255,255,0.7)" }}
+      >
+        <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 export default function Home() {
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState<Category>("All");
+  const [page, setPage] = useState(1);
   const [, setLocation] = useLocation();
   const { data, isLoading } = useTelegramMovies();
+
   const allMovies = (data?.movies ?? []).slice().sort((a, b) => (b.messageId ?? 0) - (a.messageId ?? 0));
   const filtered = useMemo(() => applyFilter(allMovies, cat, search), [allMovies, cat, search]);
 
-  return (
-    <div className="min-h-screen pb-24" style={{ background: "#0f0f0f" }}>
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageMovies = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
+  // Reset to page 1 when filter or search changes
+  useEffect(() => { setPage(1); }, [cat, search]);
+
+  function handlePageChange(p: number) {
+    setPage(p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  return (
+    <div className="min-h-screen pb-24" style={{ background: "#111111" }}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 pt-5 pb-3">
-        <div className="flex items-center gap-1.5">
-          <span className="text-white font-extrabold text-2xl tracking-tight">
-            FLIX<span style={{ color: "#dc2626" }}>NEST</span>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "#dc2626" }}>
+            <Clapperboard className="w-4 h-4 text-white" />
+          </div>
+          <span className="text-white font-extrabold text-xl tracking-wide">
+            Stream<span style={{ color: "#dc2626" }}>Vault</span>
           </span>
         </div>
         <button onClick={() => setLocation("/settings")} className="p-1">
@@ -104,22 +166,17 @@ export default function Home() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) =>
-            e.key === "Enter" && search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)
-          }
+          onKeyDown={(e) => e.key === "Enter" && search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)}
           placeholder="Search movies..."
-          className="flex-1 rounded-xl px-4 py-3 text-sm text-white focus:outline-none"
-          style={{
-            background: "#1c1c1c",
-            border: "1px solid rgba(255,255,255,0.07)",
-          }}
+          className="flex-1 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none"
+          style={{ background: "#1e1e1e", border: "1px solid rgba(255,255,255,0.08)" }}
         />
         <button
-          className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+          className="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: "#dc2626" }}
           onClick={() => search.trim() && setLocation(`/search?q=${encodeURIComponent(search.trim())}`)}
         >
-          <SearchIcon className="w-5 h-5 text-white" />
+          <SearchIcon className="w-4 h-4 text-white" />
         </button>
       </div>
 
@@ -132,8 +189,8 @@ export default function Home() {
             className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
             style={{
               background: cat === c ? "#dc2626" : "transparent",
-              border: cat === c ? "1px solid #dc2626" : "1px solid rgba(255,255,255,0.18)",
-              color: cat === c ? "#fff" : "rgba(255,255,255,0.65)",
+              border: cat === c ? "1px solid #dc2626" : "1px solid rgba(255,255,255,0.22)",
+              color: cat === c ? "#fff" : "rgba(255,255,255,0.7)",
             }}
           >
             {c}
@@ -143,133 +200,100 @@ export default function Home() {
           href={TELEGRAM_CHANNEL}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium"
-          style={{
-            border: "1px solid rgba(255,255,255,0.18)",
-            color: "rgba(255,255,255,0.65)",
-          }}
+          className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium"
+          style={{ border: "1px solid rgba(255,255,255,0.22)", color: "rgba(255,255,255,0.7)" }}
         >
-          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current" style={{ color: "#29b6f6" }}>
-            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/>
-          </svg>
-          Join Telegram
+          Join Telegram ✈️
         </a>
       </div>
 
-      {/* ── Section header ── */}
-      <div className="flex items-center gap-2.5 px-4 mb-4">
-        <div className="w-1 h-6 rounded-full" style={{ background: "#dc2626" }} />
-        <span className="text-white font-bold text-base">🔥 Latest Releases</span>
+      {/* ── Section header with page count ── */}
+      <div className="flex items-center justify-between px-4 mb-4">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-6 rounded-full" style={{ background: "#dc2626" }} />
+          <span className="text-white font-bold text-base">🔥 Latest Releases</span>
+        </div>
+        {!isLoading && filtered.length > 0 && (
+          <span className="text-xs font-mono" style={{ color: "rgba(255,255,255,0.35)" }}>
+            Page {page}/{totalPages} · {filtered.length} titles
+          </span>
+        )}
       </div>
 
       {/* ── Movie grid ── */}
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 px-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="space-y-2">
-              <div
-                className="animate-pulse rounded-xl"
-                style={{ aspectRatio: "2/3", background: "#1c1c1c" }}
-              />
-              <div className="h-3 rounded-full animate-pulse" style={{ background: "#1c1c1c", width: "80%" }} />
-              <div className="h-3 rounded-full animate-pulse" style={{ background: "#1c1c1c", width: "40%" }} />
-            </div>
+          {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            <div key={i} className="animate-pulse rounded-xl" style={{ aspectRatio: "2/3", background: "#1e1e1e" }} />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-center mt-16 text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>
+        <p className="text-center mt-16 text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>
           No movies found.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-4">
-          {filtered.map((movie, i) => {
-            const displayTitle = cleanDisplayTitle(movie.title);
-            const year = extractYear(movie.title);
-            const series = isSeries(movie.title);
-            return (
-              <motion.div
-                key={movie.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(i * 0.025, 0.35), duration: 0.25 }}
-                className="cursor-pointer"
-                onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
-              >
-                {/* Poster */}
-                <div
-                  className="relative rounded-xl overflow-hidden"
-                  style={{
-                    aspectRatio: "2/3",
-                    background: "#1c1c1c",
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
+        <>
+          <div className="grid grid-cols-2 gap-3 px-4">
+            {pageMovies.map((movie, i) => {
+              const displayTitle = cleanDisplayTitle(movie.title);
+              return (
+                <motion.div
+                  key={movie.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
+                  className="cursor-pointer"
+                  onClick={() => setLocation(`/telegram-info?id=${movie.id}`)}
                 >
-                  {movie.poster ? (
-                    <img
-                      src={movie.poster}
-                      alt={displayTitle}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                      onError={(e) => {
-                        const el = e.currentTarget as HTMLImageElement;
-                        el.style.display = "none";
-                        const fb = el.nextElementSibling as HTMLElement | null;
-                        if (fb) fb.style.display = "flex";
+                  <div className="relative rounded-xl overflow-hidden" style={{ aspectRatio: "2/3", background: "#1a1a1a" }}>
+                    {movie.poster ? (
+                      <img
+                        src={movie.poster}
+                        alt={displayTitle}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = "none";
+                          const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+                          if (next) next.style.display = "flex";
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3"
+                      style={{
+                        display: movie.poster ? "none" : "flex",
+                        background: "linear-gradient(135deg, #1f1f1f 0%, #2a1a1a 100%)",
                       }}
-                    />
-                  ) : null}
-
-                  {/* Fallback when no poster or image fails */}
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3"
-                    style={{
-                      display: movie.poster ? "none" : "flex",
-                      background: "linear-gradient(135deg, #1a1a1a 0%, #2a1515 100%)",
-                    }}
-                  >
-                    <Film className="w-8 h-8 shrink-0" style={{ color: "#dc2626", opacity: 0.6 }} />
-                    <p
-                      className="text-center leading-snug line-clamp-4 font-medium text-xs"
-                      style={{ color: "rgba(255,255,255,0.7)" }}
                     >
-                      {displayTitle}
-                    </p>
+                      <Film className="w-8 h-8 shrink-0" style={{ color: "#dc2626", opacity: 0.7 }} />
+                      <p className="text-center leading-snug line-clamp-4 font-medium text-xs" style={{ color: "rgba(255,255,255,0.75)" }}>
+                        {displayTitle}
+                      </p>
+                    </div>
+                    <div
+                      className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white"
+                      style={{ background: isSeries(movie.title) ? "#7c3aed" : "#dc2626" }}
+                    >
+                      {isSeries(movie.title) ? "SERIES" : "MOVIE"}
+                    </div>
                   </div>
-
-                  {/* SERIES / MOVIE badge */}
-                  <div
-                    className="absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white tracking-wide"
-                    style={{
-                      background: series ? "#7c3aed" : "#dc2626",
-                      boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
-                    }}
-                  >
-                    {series ? "SERIES" : "MOVIE"}
-                  </div>
-                </div>
-
-                {/* Title + Year below poster */}
-                <div className="mt-2 px-0.5">
-                  <p
-                    className="text-sm font-semibold leading-snug line-clamp-2"
-                    style={{ color: "rgba(255,255,255,0.92)" }}
-                  >
+                  <p className="text-xs mt-1.5 leading-snug line-clamp-2 font-medium" style={{ color: "rgba(255,255,255,0.85)" }}>
                     {displayTitle}
                   </p>
-                  {year && (
-                    <p
-                      className="text-xs mt-0.5 font-medium"
-                      style={{ color: "rgba(255,255,255,0.38)" }}
-                    >
-                      ({year})
-                    </p>
-                  )}
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {/* ── Pagination ── */}
+          <Pagination page={page} total={totalPages} onChange={handlePageChange} />
+
+          {/* ── Footer note ── */}
+          <p className="text-center pb-4 text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>
+            © StreamVault · We do not claim ownership of any content.
+          </p>
+        </>
       )}
     </div>
   );
