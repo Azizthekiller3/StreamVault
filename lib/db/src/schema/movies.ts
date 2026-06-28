@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, jsonb, integer, boolean } from "drizzle-orm/pg-core";
 
 export const moviesTable = pgTable("telegram_movies", {
   id: serial("id").primaryKey(),
@@ -9,8 +9,11 @@ export const moviesTable = pgTable("telegram_movies", {
   audio: text("audio").notNull().default(""),
   qualities: jsonb("qualities").notNull().default("[]"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  tmdbId: integer("tmdb_id"),
+  tmdbType: text("tmdb_type"),
+  confidence: integer("confidence"),
+  needsReview: boolean("needs_review").notNull().default(false),
 });
 
 export type Movie = typeof moviesTable.$inferSelect;
 export type InsertMovie = typeof moviesTable.$inferInsert;
-
