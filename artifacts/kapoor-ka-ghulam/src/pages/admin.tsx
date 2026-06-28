@@ -16,6 +16,16 @@ interface TmdbResult {
   originalLanguage: string;
 }
 
+interface ReviewMovie {
+  messageId: string;
+  title: string;
+  audio: string;
+  poster: string;
+  tmdbId: number | null;
+  tmdbType: string | null;
+  confidence: number | null;
+}
+
 interface TmdbOverride {
   id: number;
   rawTitle: string;
@@ -76,6 +86,11 @@ export default function AdminPage() {
   const [channelInput, setChannelInput] = useState("");
   const [channelSaving, setChannelSaving] = useState(false);
   const [channelMsg, setChannelMsg] = useState("");
+
+  // Review queue
+  const [reviewQueue, setReviewQueue] = useState<ReviewMovie[]>([]);
+  const [loadingReview, setLoadingReview] = useState(false);
+  const [reviewDismissed, setReviewDismissed] = useState<Set<string>>(new Set());
 
   // Fix TMDB
   const [fixingMovie, setFixingMovie] = useState<Movie | null>(null);
@@ -266,10 +281,20 @@ export default function AdminPage() {
     if (r.ok) await loadOverrides();
   }
 
-  // Load overrides when switching to Fix tab
+  async function loadReviewQueue() {
+    setLoadingReview(true);
+    const r = await apiFetch("/api/admin/needs-review");
+    if (r.ok) {
+      const data = await r.json() as { movies: ReviewMovie[] };
+      setReviewQueue(data.movies);
+    }
+    setLoadingReview(false);
+  }
+
+  // Load overrides + review queue when switching to Fix tab
   function switchTab(t: Tab) {
     setTab(t);
-    if (t === "fix") loadOverrides();
+    if (t === "fix") { loadOverrides(); loadReviewQueue(); }
   }
 
   // ── Login screen ───────────────────────────────────────────────────────────
@@ -446,6 +471,78 @@ export default function AdminPage() {
         {/* ── Fix TMDB ── */}
         {tab === "fix" && (
           <div className="space-y-4">
+
+            {/* Review Queue */}
+            {(() => {
+              const visible = reviewQueue.filter(m => !reviewDismissed.has(m.messageId));
+              if (loadingReview) return (
+                <div className="bg-gray-900 rounded-xl p-4 text-gray-500 text-sm">Loading review queue…</div>
+              );
+              if (reviewQueue.length === 0) return null;
+              return (
+                <div className="bg-gray-900 rounded-xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base font-bold text-white flex items-center gap-2">
+                        <span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse"></span>
+                        Review Queue
+                        <span className="text-xs font-normal text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 px-2 py-0.5 rounded-full">{visible.length} flagged</span>
+                      </h2>
+                      <p className="text-gray-500 text-xs mt-0.5">Low-confidence TMDB matches — verify or fix each one</p>
+                    </div>
+                    <button onClick={loadReviewQueue} className="text-gray-400 hover:text-white text-sm transition">Refresh</button>
+                  </div>
+                  {visible.length === 0 ? (
+                    <p className="text-green-400 text-sm">All flagged movies have been reviewed ✓</p>
+                  ) : (
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {visible.map(m => {
+                        const conf = m.confidence ?? 0;
+                        const confColor = conf >= 50 ? "text-yellow-400" : "text-red-400";
+                        const confBg = conf >= 50 ? "bg-yellow-400/10 border-yellow-400/30" : "bg-red-400/10 border-red-400/30";
+                        return (
+                          <div key={m.messageId} className="flex items-center gap-3 bg-gray-800 rounded-lg p-3">
+                            {m.poster
+                              ? <img src={m.poster} alt="" className="w-9 h-12 object-cover rounded flex-shrink-0" />
+                              : <div className="w-9 h-12 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 text-sm">🎬</div>}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-white text-sm truncate">{m.title}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {m.audio && <span className="text-gray-500 text-xs truncate">{m.audio}</span>}
+                                <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${confBg} ${confColor}`}>
+                                  {conf}% confidence
+                                </span>
+                                {m.tmdbType && (
+                                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${m.tmdbType === "tv" ? "bg-purple-600/20 text-purple-400" : "bg-gray-700 text-gray-400"}`}>
+                                    {m.tmdbType === "tv" ? "TV" : "Movie"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button
+                                onClick={() => openFixPanel({ id: m.messageId, title: m.title, poster: m.poster, audio: m.audio, qualities: [] })}
+                                className="bg-red-600/20 hover:bg-red-600/40 border border-red-600/40 text-red-400 text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                              >
+                                Fix
+                              </button>
+                              <button
+                                onClick={() => setReviewDismissed(prev => new Set([...prev, m.messageId]))}
+                                className="text-gray-600 hover:text-gray-400 text-xs px-2 py-1.5 transition"
+                                title="Dismiss (looks correct)"
+                              >
+                                ✓ OK
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="bg-gray-900 rounded-xl p-5 space-y-4">
               <div>
                 <h2 className="text-base font-bold text-white">🎯 Fix Misidentified Movies</h2>
