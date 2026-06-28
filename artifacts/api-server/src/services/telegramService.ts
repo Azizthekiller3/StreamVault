@@ -209,11 +209,15 @@ function parseAudio(lines: string[]): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function decodeEntities(str: string): string {
   return str
+    .replace(/&nbsp;/gi, " ")   // non-breaking space — most common cause of "&nbsp;Title" in stored movies
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&apos;/gi, "'")
+    .replace(/&hellip;/gi, "…")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&ndash;/gi, "–")
     .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(parseInt(n, 10)));
 }
 
