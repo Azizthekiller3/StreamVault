@@ -69,6 +69,11 @@ export interface TelegramMovie {
 // ── In-memory seed store (DB-backed on Koyeb) ──────────────────────────────
 export const seedMovies: TelegramMovie[] = [];
 
+// Cooldown map: prevents selfHealPoster from firing TMDB requests on every page view.
+// Only heals once per 30 min per movie to avoid exhausting TMDB rate limits.
+const selfHealCooldown = new Map<string, number>();
+const SELF_HEAL_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+
 function dbRowToMovie(row: {
   messageId: string;
   title: string;
@@ -120,7 +125,11 @@ export async function ensureDbLoaded(): Promise<void> {
                 const idx = seedMovies.findIndex((m) => m.id === movie.id);
                 if (idx >= 0) seedMovies[idx].poster = enriched.poster;
               }
-            } catch { /* skip failures silently */ }
+            } catch (enrichErr) {
+              logger.warn({ err: enrichErr, title: movie.title }, '[telegramService] background TMDB enrichment failed for movie');
+              await new Promise((r) => setTimeout(r, 2000)); // back off on TMDB error
+              continue;
+            }
             await new Promise((r) => setTimeout(r, 150)); // respect TMDB rate limit
           }
           logger.info("[telegramService] background TMDB enrichment complete");
@@ -561,6 +570,10 @@ function mergeSeed(scraped: TelegramMovie[]): TelegramMovie[] {
  *  If enrichment returns a DIFFERENT poster, seedMovies + DB are updated silently.
  */
 async function selfHealPoster(movie: TelegramMovie): Promise<void> {
+  // Skip if healed recently — prevents TMDB rate-limit exhaustion on detail page views
+  const lastHealed = selfHealCooldown.get(movie.id) ?? 0;
+  if (Date.now() - lastHealed < SELF_HEAL_INTERVAL_MS) return;
+  selfHealCooldown.set(movie.id, Date.now());
   try {
     const enriched = await enrichFromTmdb(movie.title, movie.audio);
     if (!enriched?.poster || enriched.poster === 'N/A') return;
