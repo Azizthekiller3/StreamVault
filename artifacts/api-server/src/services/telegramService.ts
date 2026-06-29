@@ -153,20 +153,24 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
     { label: "1080p", re: /1080p/i },
     { label: "4K",    re: /\b(4[Kk]|2160p)\b/ },
   ];
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const urlMatch = line.match(URL_CHARS);
     if (!urlMatch || !urlMatch[0].toLowerCase().includes("terabox")) continue;
     const url = urlMatch[0];
+    // Also check the previous 2 lines — some formats put the quality label
+    // on a separate line above the "Link:-URL" line
+    const context = [line, i > 0 ? lines[i - 1] : "", i > 1 ? lines[i - 2] : ""].join(" ");
     let found = false;
     for (const { label, re } of qualityPatterns) {
-      if (re.test(line)) {
+      if (re.test(context)) {
         if (!qualities.find((q) => q.quality === label)) qualities.push({ quality: label, url });
         found = true;
         break;
       }
     }
     if (!found) {
-      const ep = line.match(/\bE(\d{2,3})\b/i);
+      const ep = context.match(/\bE(\d{2,3})\b/i);
       if (ep) {
         const label = `E${ep[1].padStart(2, "0")}`;
         if (!qualities.find((q) => q.quality === label)) qualities.push({ quality: label, url });
