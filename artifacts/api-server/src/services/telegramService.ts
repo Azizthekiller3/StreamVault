@@ -91,7 +91,7 @@ function dbRowToMovie(row: {
 let _dbInitDone = false;
 let _dbInitPromise: Promise<void> | null = null;
 
-async function ensureDbLoaded(): Promise<void> {
+export async function ensureDbLoaded(): Promise<void> {
   if (_dbInitDone) return;
   if (_dbInitPromise) return _dbInitPromise;
   _dbInitPromise = (async () => {
@@ -265,6 +265,92 @@ export function parseRawPost(text: string, id: string, poster = ""): TelegramMov
   if (isJunkTitle(title)) return null; // reject junk CTA posts
   return { id, title, poster, audio: parseAudio(lines), qualities, messageId: 0 };
 }
+
+/** Returns true if a stored title is actually a quality label rather than a real movie title.
+ *  Used by the admin re-parse endpoint to find movies that need correction. */
+export function isBadTitle(title: string): boolean {
+  return /^\s*(?:\d{3,4}(?:p|hevc|h\.?265|x\.?265)|hevc|link\s*:-?|unknown\s*title)\s*$/i.test(title.trim());
+}
+
+/** Re-fetches a single Telegram message fresh from the channel web preview and
+ *  re-parses it using the current fixed parser. Returns null for manual entries
+ *  or if the message cannot be found/scraped. */
+export async function reparseMovieFromTelegram(id: string): Promise<TelegramMovie | null> {
+  const msgId = parseInt(id, 10);
+  if (isNaN(msgId)) return null; // manual_xxx entries can't be re-scraped
+
+  const channel = getChannel();
+  const url = `https://t.me/s/${channel}?before=${msgId + 2}`;
+
+  let html: string;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+    if (!response.ok) return null;
+    html = await response.text();
+  } catch {
+    return null;
+  }
+
+  const $ = cheerio.load(html);
+  const BG_RE = /url\(['"]?(https?:\/\/[^'"\)\s]+)['"]?\)/;
+
+  // Pass 1: collect photos keyed by message ID
+  const photoByMsgId = new Map<number, string>();
+  $(".tgme_widget_message_wrap").each((_, el) => {
+    const msgEl = $(el).find(".tgme_widget_message");
+    const dataPost = msgEl.attr("data-post") || "";
+    const mid = parseInt(dataPost.split("/").pop() || "0", 10);
+    if (!mid) return;
+    const style =
+      $(el).find(".tgme_widget_message_photo_wrap").attr("style") ||
+      $(el).find("[style*='background-image']").first().attr("style") || "";
+    const bgM = style.match(BG_RE);
+    if (bgM) { photoByMsgId.set(mid, bgM[1]); return; }
+    const imgSrc = $(el).find("img:not([src^='data'])").first().attr("src");
+    if (imgSrc?.startsWith("http")) photoByMsgId.set(mid, imgSrc);
+  });
+
+  // Pass 2: find our specific message
+  let found: TelegramMovie | null = null;
+  $(".tgme_widget_message_wrap").each((_, el) => {
+    if (found) return;
+    const msgEl = $(el).find(".tgme_widget_message");
+    const dataPost = msgEl.attr("data-post") || "";
+    const messageId = parseInt(dataPost.split("/").pop() || "0", 10);
+    if (messageId !== msgId) return;
+
+    const textEl = $(el).find(".tgme_widget_message_text");
+    const lines = htmlToLines(textEl, $);
+    const qualities = parseQualities(lines);
+    if (qualities.length === 0) return; // not a movie post
+
+    let posterUrl = photoByMsgId.get(messageId) ?? "";
+    if (!posterUrl) {
+      for (let offset = 1; offset <= 10; offset++) {
+        const candidate = photoByMsgId.get(messageId - offset);
+        if (candidate) { posterUrl = candidate; break; }
+      }
+    }
+
+    found = {
+      id: String(messageId),
+      title: parseTitle(lines),
+      poster: posterUrl,
+      audio: parseAudio(lines),
+      qualities,
+      messageId,
+    };
+  });
+
+  return found;
+}
+
 
 // Check if a URL is a Telegram CDN URL (not usable in browsers due to CORS/auth)
 function isTelegramCdnUrl(url: string): boolean {
