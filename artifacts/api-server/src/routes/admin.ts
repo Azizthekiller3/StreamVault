@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { verifyAdminCredentials, verifyAdminToken, generateAdminToken } from "../lib/adminAuth.js";
-import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel } from "../services/telegramService.js";
+import { parseRawPost, addSeedMovie, removeSeedMovie, seedMovies, getChannel, setChannel, reparseMovieFromTelegram, isBadTitle, ensureDbLoaded } from "../services/telegramService.js";
 import { enrichFromTmdb, clearTmdbCache, searchTmdbForAdmin, saveTitleOverride, deleteTitleOverride } from "../services/tmdbService.js";
 import { db, moviesTable, titleOverridesTable } from "@workspace/db";
 import { isNull, eq, or } from "drizzle-orm";
@@ -374,6 +374,70 @@ router.delete("/admin/tmdb-overrides/:id", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to delete TMDB override");
     res.status(500).json({ error: "Failed to delete override" });
+  }
+});
+
+
+// POST /api/admin/re-parse/:id — re-fetch one movie from Telegram and re-parse with fixed parser
+router.post("/admin/re-parse/:id", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  const { id } = req.params;
+  if (!id || !/^[0-9]+$/.test(id)) {
+    res.status(400).json({ error: "Only numeric Telegram message IDs can be re-parsed (not manual entries)" });
+    return;
+  }
+  try {
+    const fresh = await reparseMovieFromTelegram(id);
+    if (!fresh) {
+      res.status(404).json({ error: "Could not find this message in the Telegram channel — it may have been deleted or the channel is unreachable" });
+      return;
+    }
+    const existing = seedMovies.find((m) => m.id === id);
+    // Preserve a good existing poster if the fresh scrape only got a CDN URL
+    if (existing?.poster && (!fresh.poster || /telesco\.pe|cdn\.telegram|t\.me/i.test(fresh.poster))) {
+      fresh.poster = existing.poster;
+    }
+    addSeedMovie(fresh);
+    req.log.info({ id, oldTitle: existing?.title, newTitle: fresh.title }, "Admin re-parsed movie from Telegram");
+    res.json({ ok: true, movie: fresh, oldTitle: existing?.title ?? null });
+  } catch (err) {
+    req.log.error({ err }, "re-parse failed");
+    res.status(500).json({ error: "Re-parse failed" });
+  }
+});
+
+// POST /api/admin/re-parse-bad-titles — find all movies with quality-label titles and re-parse them
+router.post("/admin/re-parse-bad-titles", async (req, res) => {
+  if (!requireToken(req, res)) return;
+  try {
+    await ensureDbLoaded();
+    const badMovies = seedMovies.filter((m) => isBadTitle(m.title));
+    req.log.info({ count: badMovies.length }, "Admin re-parsing bad-title movies");
+
+    const results: { id: string; oldTitle: string; newTitle: string | null; ok: boolean }[] = [];
+
+    for (const movie of badMovies) {
+      const fresh = await reparseMovieFromTelegram(movie.id);
+      if (!fresh) {
+        results.push({ id: movie.id, oldTitle: movie.title, newTitle: null, ok: false });
+        continue;
+      }
+      // Preserve a good existing poster
+      if (movie.poster && (!fresh.poster || /telesco\.pe|cdn\.telegram|t\.me/i.test(fresh.poster))) {
+        fresh.poster = movie.poster;
+      }
+      addSeedMovie(fresh);
+      results.push({ id: movie.id, oldTitle: movie.title, newTitle: fresh.title, ok: true });
+      // Small delay to avoid hammering Telegram
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    const fixed = results.filter((r) => r.ok).length;
+    req.log.info({ total: badMovies.length, fixed }, "Admin re-parse-bad-titles complete");
+    res.json({ ok: true, total: badMovies.length, fixed, results });
+  } catch (err) {
+    req.log.error({ err }, "re-parse-bad-titles failed");
+    res.status(500).json({ error: "Re-parse failed" });
   }
 });
 
