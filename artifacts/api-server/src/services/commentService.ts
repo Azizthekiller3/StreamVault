@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { commentsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 
 export interface Comment {
   id: string;
@@ -52,9 +52,9 @@ export async function addComment(
 }
 
 export async function getCommentCount(movieId: string): Promise<number> {
-  const rows = await db
-    .select({ id: commentsTable.id })
+  const [result] = await db
+    .select({ value: count() })
     .from(commentsTable)
     .where(eq(commentsTable.movieId, movieId));
-  return rows.length;
+  return result?.value ?? 0;
 }
