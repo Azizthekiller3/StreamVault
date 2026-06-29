@@ -149,6 +149,7 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
   const qualities: TeraboxQuality[] = [];
   const qualityPatterns = [
     { label: "480p",  re: /480p/i },
+    { label: "720hevc", re: /720\s*(?:hevc|h\.?265|x\.?265)/i },
     { label: "720p",  re: /720p/i },
     { label: "1080p", re: /1080p/i },
     { label: "4K",    re: /\b(4[Kk]|2160p)\b/ },
@@ -182,14 +183,27 @@ function parseQualities(lines: string[]): TeraboxQuality[] {
 
 function parseTitle(lines: string[]): string {
   for (const line of lines) {
-    const titleMatch = line.match(/(?:title|movie\s*(?:name)?)\s*[:\-–]+\s*(.+)/i);
+    const titleMatch = line.match(/(?:title|movie\s*(?:name)?)\s*[:\-\u2013]+\s*(.+)/i);
     if (titleMatch) {
-      return titleMatch[1].replace(/^[\s\-–:]+/, "").replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "").trim();
+      return titleMatch[1].replace(/^[\s\-\u2013:]+/, "").replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "").trim();
+    }
+  }
+  // High-priority pass: lines with a year in parens are almost certainly titles.
+  // e.g. "Blast (2026) HDRip South Movie ORG. [Dual Audio] [Hindi or Tamil] x264 ESubs"
+  // Without this, "[Dual Audio]" causes the title line to be filtered by the audio-label check below.
+  for (const line of lines) {
+    if (line.match(/\(20\d{2}\)/)) {
+      const clean = line.replace(/[^\p{L}\p{N}\s\-:'.!?()]/gu, "").trim();
+      if (clean.length > 2) return clean;
     }
   }
   for (const line of lines) {
     if (line.match(/terabox/i) || line.match(/^\s*\d{3,4}p/i) || line.match(/^https?:/i)) continue;
-    if (line.match(/backup|t\.me|subscribe|audio|quality|genre|join|request|group|channel|forward/i)) continue;
+    // Skip quality-label-only lines: "720hevc", "hevc", "Link:-" etc.
+    if (line.match(/^\s*(?:\d{3,4}(?:hevc|h\.?265|x\.?265)|hevc|link\s*:\s*-?)\s*$/i)) continue;
+    if (line.match(/backup|t\.me|subscribe|quality|genre|join|request|group|channel|forward/i)) continue;
+    // Skip "Audio: Hindi" style label lines; do NOT skip "[Dual Audio]" inside titles
+    if (line.match(/^\s*audio\s*[:\-\u2013]/i)) continue;
     if (line.match(/watch.?online|watch.?now|stream.?now|download|click.?here|enjoy.?now|^\s*\/add\s/i)) continue;
     const clean = line.replace(/[^\p{L}\p{N}\s\-:'.!?()#]/gu, "").trim();
     if (clean.length > 2) return clean;
