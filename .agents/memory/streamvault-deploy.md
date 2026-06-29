@@ -155,3 +155,17 @@ curl -X POST https://streamvault-moviebot123-091f92aa.koyeb.app/api/telegram/reg
 2. `parseTitle`: Changed `|audio|` filter to `^\s*audio\s*[:-]` — only skips dedicated "Audio: Hindi" label lines, not bracketed "[Dual Audio]" text within a title.
 3. `parseTitle`: Added skip for quality-label-only lines (`720hevc`, `hevc`, `Link:-`).
 4. `parseQualities`: Added `{ label: "720hevc", re: /720\s*(?:hevc|h\.?265|x\.?265)/i }` before "720p" pattern.
+
+### 2026-06-29 — Re-parse admin endpoints
+Added two endpoints to fix already-stored bad titles without re-backfilling the whole channel:
+
+**New exports from `telegramService.ts`:**
+- `isBadTitle(title)` — returns true if title matches quality-label patterns (720hevc, hevc, etc.)
+- `reparseMovieFromTelegram(id)` — re-fetches message from `t.me/s/{channel}?before={id+2}`, re-parses with fixed parser
+- `ensureDbLoaded()` — now exported so admin can trigger DB load before scanning seedMovies
+
+**New endpoints in `admin.ts`:**
+- `POST /api/admin/re-parse/:id` — re-parse one movie by numeric Telegram message ID
+- `POST /api/admin/re-parse-bad-titles` — scan all seedMovies for bad titles, re-parse each from Telegram, 400ms delay between requests
+
+Both require `x-admin-token` header.
