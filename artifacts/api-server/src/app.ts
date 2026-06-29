@@ -107,6 +107,10 @@ setInterval(() => {
   for (const [key, val] of rateLimitStore) {
     if (now > val.resetAt) rateLimitStore.delete(key);
   }
+  // Safety cap: if store is still large after sweep, clear entirely to prevent memory leak
+  if (rateLimitStore.size > 10_000) {
+    rateLimitStore.clear();
+  }
 }, 10 * 60 * 1000);
 
 // 20 per IP per minute for comments
