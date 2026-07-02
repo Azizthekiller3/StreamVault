@@ -235,15 +235,17 @@ export default function Home() {
       )}
 
       {/* ── Movie grid ── */}
-      {!isError && isLoading ? (
+      {!isError && isLoading && (
         <div className="grid grid-cols-2 gap-3 px-4">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
             <div key={i} className="animate-pulse rounded-2xl" style={{ aspectRatio: "2/3", background: "#1a1a1a" }} />
           ))}
         </div>
-      ) : !isError && filtered.length === 0 ? (
+      )}
+      {!isError && !isLoading && filtered.length === 0 && (
         <p className="text-center mt-20 text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>No movies found.</p>
-      ) : !isError ? (
+      )}
+      {!isError && !isLoading && filtered.length > 0 && (
         <>
           <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-4">
 
@@ -327,7 +329,7 @@ export default function Home() {
             © StreamVault · We do not claim ownership of any content on this website.
           </p>
         </>
-      ) : null}
+      )}
     </div>
   );
 }
