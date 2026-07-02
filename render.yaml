@@ -1,0 +1,42 @@
+services:
+  # ── Frontend (Kapoor Ka Ghulam) — Static Site ──────────────────────────────
+  - type: web
+    name: Kapoor-Ka-Ghulam
+    runtime: static
+    buildCommand: pnpm install && pnpm run typecheck:libs && pnpm --filter @workspace/kapoor-ka-ghulam run build
+    staticPublishPath: artifacts/kapoor-ka-ghulam/dist/public
+    pullRequestPreviewsEnabled: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false   # Set this in the Render dashboard to your API server URL
+
+  # ── Backend (API Server) — Web Service ────────────────────────────────────
+  - type: web
+    name: StreamVault-API
+    runtime: node
+    buildCommand: pnpm install && pnpm run typecheck:libs && pnpm --filter @workspace/api-server run build
+    startCommand: node --enable-source-maps artifacts/api-server/dist/index.mjs
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: TELEGRAM_CHANNEL
+        sync: false
+      - key: ALLOWED_FRONTEND_ORIGIN
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
