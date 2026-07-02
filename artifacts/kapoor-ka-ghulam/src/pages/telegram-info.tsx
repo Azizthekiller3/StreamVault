@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Download,
   Loader2,
-  Bookmark,
   Share2,
   Star,
   Calendar,
@@ -19,12 +18,6 @@ import {
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient as useRQClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import {
-  useAddToWatchlist,
-  useRemoveFromWatchlist,
-  useGetWatchlist,
-  getGetWatchlistQueryKey,
-} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api-base";
@@ -410,41 +403,6 @@ export default function TelegramInfo() {
     }
   }, [movie?.id, tmdb?.poster]);
 
-  const { data: watchlist } = useGetWatchlist();
-  const addToWatchlist = useAddToWatchlist({
-    mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetWatchlistQueryKey() }),
-    },
-  });
-  const removeFromWatchlist = useRemoveFromWatchlist({
-    mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetWatchlistQueryKey() }),
-    },
-  });
-  const watchlistItem = watchlist?.find(
-    (i: { link?: string | null }) => i.link === `/telegram-info?id=${id}`
-  );
-  const isInWatchlist = !!watchlistItem;
-
-  const handleWatchlistToggle = async () => {
-    if (!movie) return;
-    if (isInWatchlist && watchlistItem) {
-      await removeFromWatchlist.mutateAsync({ id: watchlistItem.id });
-      toast({ title: "Removed from watchlist" });
-    } else {
-      await addToWatchlist.mutateAsync({
-        data: {
-          title: movie.title,
-          poster: tmdb?.poster || movie.poster,
-          link: `/telegram-info?id=${id}`,
-          provider: "telegram",
-          type: "movie",
-        },
-      });
-      toast({ title: "Added to watchlist ❤️" });
-    }
-  };
-
   const handleShare = async () => {
     if (!movie) return;
     const url = `${window.location.origin}/telegram-info?id=${id}`;
@@ -556,15 +514,6 @@ export default function TelegramInfo() {
             style={{ background: "rgba(0,0,0,0.55)" }}
           >
             <Share2 className="w-4 h-4 text-white" />
-          </button>
-          <button
-            onClick={handleWatchlistToggle}
-            className="p-2 rounded-full"
-            style={{ background: "rgba(0,0,0,0.55)" }}
-          >
-            <Bookmark
-              className={cn("w-4 h-4", isInWatchlist ? "fill-red-500 text-red-500" : "text-white")}
-            />
           </button>
         </div>
         {/* TMDB rating badge */}

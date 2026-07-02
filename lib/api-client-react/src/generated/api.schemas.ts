@@ -168,33 +168,6 @@ export interface ContentInfo {
   country: string;
 }
 
-export interface WatchlistItem {
-  id: number;
-  title: string;
-  poster: string;
-  link: string;
-  provider: string;
-  type: string;
-  /** @nullable */
-  imdbId?: string | null;
-  /** @nullable */
-  rating?: string | null;
-  /** @nullable */
-  year?: string | null;
-  addedAt: string;
-}
-
-export interface WatchlistInput {
-  title: string;
-  poster: string;
-  link: string;
-  provider: string;
-  type: string;
-  imdbId?: string;
-  rating?: string;
-  year?: string;
-}
-
 export interface HistoryItem {
   id: number;
   title: string;
@@ -237,7 +210,6 @@ export interface AppSettingsInput {
 }
 
 export interface UserStats {
-  watchlistCount: number;
   historyCount: number;
   extensionsCount: number;
   sourcesCount: number;

@@ -12,7 +12,6 @@ tags:
   - name: sources
   - name: extensions
   - name: content
-  - name: watchlist
   - name: history
   - name: settings
   - name: search
@@ -413,59 +412,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ContentInfo"
 
-  # ── Watchlist ─────────────────────────────────────────────────
-  /watchlist:
-    get:
-      operationId: getWatchlist
-      tags: [watchlist]
-      summary: Get watchlist
-      responses:
-        "200":
-          description: Watchlist items
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/WatchlistItem"
-
-    post:
-      operationId: addToWatchlist
-      tags: [watchlist]
-      summary: Add to watchlist
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/WatchlistInput"
-      responses:
-        "201":
-          description: Added
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WatchlistItem"
-
-  /watchlist/{id}:
-    delete:
-      operationId: removeFromWatchlist
-      tags: [watchlist]
-      summary: Remove from watchlist
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Removed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessResponse"
-
   # ── History ───────────────────────────────────────────────────
   /history:
     get:
@@ -567,7 +513,7 @@ paths:
   /stats:
     get:
       operationId: getStats
-      tags: [watchlist]
+      tags: [stats]
       summary: Get user stats
       responses:
         "200":
@@ -861,53 +807,6 @@ components:
           type: string
       required: [imdbId, title, year, type, poster, plot, rating, genre, actors, runtime, language, country]
 
-    # ── Watchlist ─────────────────────────────────────────────────
-    WatchlistItem:
-      type: object
-      properties:
-        id:
-          type: integer
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: ["string", "null"]
-        rating:
-          type: ["string", "null"]
-        year:
-          type: ["string", "null"]
-        addedAt:
-          type: string
-      required: [id, title, poster, link, provider, type, addedAt]
-
-    WatchlistInput:
-      type: object
-      properties:
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: string
-        rating:
-          type: string
-        year:
-          type: string
-      required: [title, poster, link, provider, type]
-
     # ── History ───────────────────────────────────────────────────
     HistoryItem:
       type: object
@@ -981,12 +880,10 @@ components:
     UserStats:
       type: object
       properties:
-        watchlistCount:
-          type: integer
         historyCount:
           type: integer
         extensionsCount:
           type: integer
         sourcesCount:
           type: integer
-      required: [watchlistCount, historyCount, extensionsCount, sourcesCount]
+      required: [historyCount, extensionsCount, sourcesCount]

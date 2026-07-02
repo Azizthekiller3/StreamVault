@@ -1,24 +1,19 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Bookmark, MoreVertical, Play, ChevronDown, Download, ArrowLeft } from "lucide-react";
+import { Loader2, MoreVertical, Play, ChevronDown, Download, ArrowLeft } from "lucide-react";
 import {
   useGetContentInfo,
   useGetMeta,
   useGetEpisodes,
   useGetStreams,
-  useGetWatchlist,
-  useAddToWatchlist,
-  useRemoveFromWatchlist,
   getGetContentInfoQueryKey,
   getGetMetaQueryKey,
   getGetEpisodesQueryKey,
   getGetStreamsQueryKey,
-  getGetWatchlistQueryKey,
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 export default function Info() {
@@ -28,7 +23,6 @@ export default function Info() {
   const extId = searchParams.get("extId") ? Number(searchParams.get("extId")) : null;
   const link = searchParams.get("link");
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const [selectedLinkIdx, setSelectedLinkIdx] = useState(0);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
@@ -73,36 +67,6 @@ export default function Info() {
       },
     }
   );
-
-  // Watchlist
-  const { data: watchlist } = useGetWatchlist();
-  const addToWatchlist = useAddToWatchlist({ mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetWatchlistQueryKey() }) } });
-  const removeFromWatchlist = useRemoveFromWatchlist({ mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetWatchlistQueryKey() }) } });
-
-  const watchlistItem = watchlist?.find((i) => (imdbId && i.imdbId === imdbId) || (link && i.link === link));
-  const isInWatchlist = !!watchlistItem;
-
-  const handleWatchlistToggle = async () => {
-    if (!info) return;
-    if (isInWatchlist && watchlistItem) {
-      await removeFromWatchlist.mutateAsync({ id: watchlistItem.id });
-      toast({ title: "Removed from watchlist" });
-    } else {
-      await addToWatchlist.mutateAsync({
-        data: {
-          title: (info as any).title,
-          poster: (info as any).image || (info as any).poster || "",
-          link: link || `/info?imdbId=${imdbId}`,
-          provider: extId ? String(extId) : "OMDB",
-          type: (info as any).type || "movie",
-          imdbId: imdbId || (info as any).imdbId || undefined,
-          rating: (info as any).rating,
-          year: (info as any).year,
-        },
-      });
-      toast({ title: "Added to watchlist" });
-    }
-  };
 
   const handleOpenServerSheet = (epLink?: string) => {
     setServerEpisodeLink(epLink ?? null);
@@ -188,14 +152,6 @@ export default function Info() {
             )}
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleWatchlistToggle}
-              disabled={addToWatchlist.isPending || removeFromWatchlist.isPending}
-              className={cn("transition-colors", isInWatchlist ? "text-primary" : "text-white/50 hover:text-white")}
-              data-testid="button-watchlist-toggle"
-            >
-              <Bookmark className={cn("w-5 h-5", isInWatchlist && "fill-primary")} />
-            </button>
             <button className="text-white/50 hover:text-white transition-colors" data-testid="button-more-options">
               <MoreVertical className="w-5 h-5" />
             </button>

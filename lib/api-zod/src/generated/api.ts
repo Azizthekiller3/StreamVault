@@ -313,52 +313,6 @@ export const GetContentInfoResponse = zod.object({
 
 
 /**
- * @summary Get watchlist
- */
-export const GetWatchlistResponseItem = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "poster": zod.string(),
-  "link": zod.string(),
-  "provider": zod.string(),
-  "type": zod.string(),
-  "imdbId": zod.string().nullish(),
-  "rating": zod.string().nullish(),
-  "year": zod.string().nullish(),
-  "addedAt": zod.string()
-})
-export const GetWatchlistResponse = zod.array(GetWatchlistResponseItem)
-
-
-/**
- * @summary Add to watchlist
- */
-export const AddToWatchlistBody = zod.object({
-  "title": zod.string(),
-  "poster": zod.string(),
-  "link": zod.string(),
-  "provider": zod.string(),
-  "type": zod.string(),
-  "imdbId": zod.string().optional(),
-  "rating": zod.string().optional(),
-  "year": zod.string().optional()
-})
-
-
-/**
- * @summary Remove from watchlist
- */
-export const RemoveFromWatchlistParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const RemoveFromWatchlistResponse = zod.object({
-  "success": zod.boolean(),
-  "message": zod.string().optional()
-})
-
-
-/**
  * @summary Get watch history
  */
 export const GetHistoryResponseItem = zod.object({
@@ -456,7 +410,6 @@ export const UpdateSettingsResponse = zod.object({
  * @summary Get user stats
  */
 export const GetStatsResponse = zod.object({
-  "watchlistCount": zod.number(),
   "historyCount": zod.number(),
   "extensionsCount": zod.number(),
   "sourcesCount": zod.number()

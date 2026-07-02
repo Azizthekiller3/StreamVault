@@ -276,7 +276,8 @@ router.get("/telegram/cdn-proxy", async (req, res) => {
   if (!url) { res.status(400).send(); return; }
   let parsed: URL;
   try { parsed = new URL(url); } catch { res.status(400).send(); return; }
-  if (!parsed.hostname.endsWith("telesco.pe")) { res.status(403).send(); return; }
+  // Strict allowlist: only cdn*.telesco.pe — prevent eviltelesco.pe style bypasses
+  if (!/^cdn\d*\.telesco\.pe$/.test(parsed.hostname)) { res.status(403).send(); return; }
   try {
     const upstream = await fetch(url, {
       redirect: "error", // Prevent SSRF via open redirects
