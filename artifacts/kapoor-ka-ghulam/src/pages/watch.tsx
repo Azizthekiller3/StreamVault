@@ -24,6 +24,12 @@ export default function Watch() {
   // Tracks whether we've already attempted a seek so we don't seek twice
   const resumeApplied = useRef(false);
 
+  // Reset resume state whenever the video source changes (navigating between videos)
+  useEffect(() => {
+    resumeApplied.current = false;
+    lastSavedProgress.current = 0;
+  }, [src]);
+
   // Fetch history to find saved progress for this movie
   const { data: historyData } = useGetHistory();
 

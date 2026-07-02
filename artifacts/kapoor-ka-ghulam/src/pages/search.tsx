@@ -45,7 +45,7 @@ export default function Search() {
   }, [query]);
 
   const { data: telegramData, isLoading: telegramLoading, isError: telegramError } = useTelegramSearch(debouncedQuery);
-  const { data: omdbData, isLoading: omdbLoading } = useSearchContent(
+  const { data: omdbData, isLoading: omdbLoading, isError: omdbError } = useSearchContent(
     { q: debouncedQuery },
     { query: { enabled: debouncedQuery.length > 2, queryKey: ["searchContent", debouncedQuery] } }
   );
@@ -156,8 +156,8 @@ export default function Search() {
           </div>
         )}
 
-        {/* Error state */}
-        {!isLoading && telegramError && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
+        {/* Error state — shown when both sources failed */}
+        {!isLoading && (telegramError || omdbError) && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <SearchIcon className="w-12 h-12 text-white/20 mb-4" />
             <p className="text-white font-semibold">Search failed</p>
@@ -165,8 +165,8 @@ export default function Search() {
           </div>
         )}
 
-        {/* No results */}
-        {!isLoading && !telegramError && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
+        {/* No results — only when neither source errored */}
+        {!isLoading && !telegramError && !omdbError && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <SearchIcon className="w-12 h-12 text-white/20 mb-4" />
             <p className="text-white font-semibold">No results found</p>
