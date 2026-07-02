@@ -142,7 +142,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: "#0f0f0f" }}>
+    <div className="min-h-screen" style={{ background: "#0f0f0f" }}>
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 pt-5 pb-4">

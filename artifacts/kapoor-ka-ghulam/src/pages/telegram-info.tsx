@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient as useRQClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api-base";
 import { detectGenres } from "@/lib/genres";
@@ -366,7 +365,6 @@ function YouMayAlsoLike({
 
 export default function TelegramInfo() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const search = useSearch();
   const searchParams = new URLSearchParams(search);

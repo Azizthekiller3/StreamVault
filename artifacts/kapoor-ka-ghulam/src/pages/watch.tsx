@@ -21,6 +21,7 @@ export default function Watch() {
   const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queryClient = useQueryClient();
+  // Tracks whether we've already attempted a seek so we don't seek twice
   const resumeApplied = useRef(false);
 
   // Fetch history to find saved progress for this movie
@@ -42,17 +43,28 @@ export default function Watch() {
 
   const lastSavedProgress = useRef<number>(0);
 
-  // Seek to saved position when video metadata loads (only once)
-  const handleLoadedMetadata = () => {
+  /** Attempt to seek once both video metadata AND savedProgress are available */
+  const tryResume = (progress: number | null) => {
     if (resumeApplied.current) return;
-    if (savedProgress && savedProgress > 2 && savedProgress < 95 && videoRef.current) {
-      const duration = videoRef.current.duration;
-      if (duration > 0) {
-        videoRef.current.currentTime = (savedProgress / 100) * duration;
-        lastSavedProgress.current = savedProgress;
-      }
+    if (!progress || progress <= 2 || progress >= 95) return;
+    if (!videoRef.current) return;
+    const { readyState, duration } = videoRef.current;
+    // readyState >= 1 means HAVE_METADATA — duration is known
+    if (readyState >= 1 && duration > 0) {
+      videoRef.current.currentTime = (progress / 100) * duration;
+      lastSavedProgress.current = progress;
+      resumeApplied.current = true;
     }
-    resumeApplied.current = true;
+  };
+
+  // Case 1: video metadata ready first, history loads later
+  useEffect(() => {
+    tryResume(savedProgress);
+  }, [savedProgress]);
+
+  // Case 2: history ready first, video metadata loads later
+  const handleLoadedMetadata = () => {
+    tryResume(savedProgress);
   };
 
   useEffect(() => {
@@ -86,7 +98,7 @@ export default function Watch() {
     if (duration > 0) {
       const progress = (currentTime / duration) * 100;
 
-      // Save every 5% progress or at 95%+ (near end), whichever is smaller
+      // Save every 5% progress or every ~30 seconds, whichever threshold is smaller
       const saveInterval = Math.min(5, (30 / duration) * 100);
 
       if (Math.abs(progress - lastSavedProgress.current) >= saveInterval || progress > 95) {

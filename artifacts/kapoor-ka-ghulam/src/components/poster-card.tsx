@@ -66,6 +66,9 @@ export function PosterCard({ imdbId, link, title, poster, year, type, progress, 
   let href = "";
   if (imdbId) {
     href = `/info?imdbId=${imdbId}`;
+  } else if (link?.startsWith("/telegram-info")) {
+    // Telegram history items carry the full path — navigate directly
+    href = link;
   } else if (link && activeExtId) {
     href = `/info?extId=${activeExtId}&link=${encodeURIComponent(link)}`;
   }

@@ -156,8 +156,17 @@ export default function Search() {
           </div>
         )}
 
+        {/* Error state */}
+        {!isLoading && telegramError && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <SearchIcon className="w-12 h-12 text-white/20 mb-4" />
+            <p className="text-white font-semibold">Search failed</p>
+            <p className="text-white/40 text-sm mt-1">Could not reach the server. Check your connection.</p>
+          </div>
+        )}
+
         {/* No results */}
-        {!isLoading && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
+        {!isLoading && !telegramError && debouncedQuery.length > 2 && telegramMovies.length === 0 && omdbResults.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <SearchIcon className="w-12 h-12 text-white/20 mb-4" />
             <p className="text-white font-semibold">No results found</p>
