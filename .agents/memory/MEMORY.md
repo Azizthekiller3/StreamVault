@@ -1,0 +1,5 @@
+- [FlixNest project overview](flixnest-overview.md) — Full Telegram movie streaming PWA: React/Vite frontend + Express backend + Neon PostgreSQL + TMDB
+- [StreamVault deploy](streamvault-deploy.md) — Deployment setup: Vercel frontend, Koyeb backend, Neon DB, GitHub CI
+- [Extension system](extension-system.md) — Provider/extension plugin architecture details
+- [Vega extension system](vega-extension-system.md) — Extension executor sandbox details
+- [Orval/Zod conflict](orval-zod-conflict.md) — Codegen zod/v4 conflict workaround
