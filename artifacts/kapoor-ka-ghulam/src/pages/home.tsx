@@ -33,6 +33,16 @@ export function isSeries(title: string): boolean {
   return /\b(S\d{2}|Season|Series|E\d{2}|Episode|Web.?Series)\b/i.test(title);
 }
 
+function getQualityBadge(movie: TelegramMovie): string {
+  const text = [movie.title, ...(movie.qualities ?? []).map((q) => q.quality)].join(" ");
+  if (/\b(4[Kk]|2160p)\b/.test(text)) return "4K";
+  if (/\bBlu.?Ray\b/i.test(text)) return "BluRay";
+  if (/\b1080p\b/.test(text)) return "FHD";
+  if (/\b720p\b/.test(text)) return "HD";
+  if (/\b480p\b/.test(text)) return "SD";
+  return "HD";
+}
+
 function cleanDisplayTitle(raw: string): string {
   return raw
     .replace(/\b(480p|720p|1080p|2160p|4[Kk]|HDR|BluRay|BDRip|BRRip|WEB.?DL|WEBRip|HDCAM|HDTC|CAM|HEVC|x\.?264|x\.?265|AAC|AC3|DD5\.1|DDP5\.1|Atmos|ESubs?|HIN|CHI|TEL|TAM|MAL|KAN|HC.?ESub|HQ|DVDRip|DVDScr|AMZN|DSNP|NF|ZEE5)\b/gi, "")
@@ -298,25 +308,20 @@ export default function Home() {
                       </p>
                     </div>
 
-                    {/* Badge */}
+                    {/* Quality badge — bottom-right */}
                     <span
-                      className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] font-bold text-white tracking-wide"
-                      style={{ background: series ? "#7c3aed" : "#dc2626" }}
+                      className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white tracking-wide"
+                      style={{ background: "rgba(0,0,0,0.78)", border: "1px solid rgba(255,255,255,0.18)" }}
                     >
-                      {series ? "SERIES" : "MOVIE"}
+                      {getQualityBadge(movie)}
                     </span>
                   </div>
 
-                  {/* ── Title + year below card ── */}
+                  {/* ── Full title below card ── */}
                   <div className="mt-2 px-0.5">
-                    <p className="text-sm font-semibold leading-snug line-clamp-2" style={{ color: "#ffffff" }}>
-                      {name}
+                    <p className="text-xs font-medium leading-snug line-clamp-4" style={{ color: "#e5e5e5" }}>
+                      {movie.title}
                     </p>
-                    {year && (
-                      <p className="text-xs mt-0.5 font-medium" style={{ color: "rgba(255,255,255,0.4)" }}>
-                        ({year})
-                      </p>
-                    )}
                   </div>
                 </motion.div>
               );
