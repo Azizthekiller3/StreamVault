@@ -238,7 +238,8 @@ router.post("/telegram/webhook", async (req, res) => {
     const post = update?.channel_post;
     if (!post) return;
 
-    // Extract photo from Telegram post — use the largest resolution variant
+    // Extract Telegram-attached photo as a fallback (channel admin may post
+    // wrong scene stills, so we prefer the TMDB official poster below).
     let telegramPoster = "";
     if (Array.isArray(post.photo) && post.photo.length > 0) {
       const bestPhoto = post.photo[post.photo.length - 1];
@@ -248,17 +249,24 @@ router.post("/telegram/webhook", async (req, res) => {
 
     const rawText = post.text || post.caption || "";
     if (!rawText.trim()) return;
-    const movie = parseRawPost(rawText, String(post.message_id), telegramPoster);
+    // Parse without Telegram photo first — we'll set poster after TMDB check
+    const movie = parseRawPost(rawText, String(post.message_id), "");
     if (!movie) return;
-    // If no Telegram photo, fall back to TMDB poster
-    if (!movie.poster) {
-      try {
-        const enriched = await enrichFromTmdb(movie.title);
-        if (enriched?.poster && enriched.poster !== "N/A") movie.poster = enriched.poster;
-      } catch (err) {
-        req.log.warn({ err, title: movie.title }, "TMDB enrichment failed for webhook (non-fatal)");
+
+    // Always try TMDB first — official poster is more reliable than channel photos.
+    // Fall back to Telegram photo only if TMDB returns nothing.
+    try {
+      const enriched = await enrichFromTmdb(movie.title, movie.audio);
+      if (enriched?.poster && enriched.poster !== "N/A") {
+        movie.poster = enriched.poster;
+      } else {
+        movie.poster = telegramPoster; // TMDB failed — use channel photo as fallback
       }
+    } catch (err) {
+      req.log.warn({ err, title: movie.title }, "TMDB enrichment failed for webhook (non-fatal)");
+      movie.poster = telegramPoster;
     }
+
     movie.messageId = post.message_id;
     addSeedMovie(movie);
     req.log.info({ id: movie.id, title: movie.title, hasPoster: !!movie.poster }, "Movie added via webhook");
@@ -329,7 +337,8 @@ router.post('/telegram/re-enrich', async (req, res) => {
   const { moviesTable, db } = await import('@workspace/db');
   const { eq } = await import('drizzle-orm');
 
-  const movies = seedMovies.filter((m) => !m.poster || /telesco\.pe|cdn\.telegram|t\.me/i.test(m.poster));
+  // Include bot-proxy poster URLs too — channel admin may have posted wrong scene stills
+  const movies = seedMovies.filter((m) => !m.poster || /telesco\.pe|cdn\.telegram|t\.me|\/api\/telegram\/photo\//i.test(m.poster));
   req.log.info({ count: movies.length }, '[re-enrich] starting background re-enrichment');
   res.json({ ok: true, queued: movies.length, message: 'Re-enrichment started in background' });
 
@@ -488,6 +497,47 @@ router.post('/telegram/fix-titles', async (req, res) => {
   }
 });
 
+
+// ── Admin: delete a specific movie by messageId ───────────────────────────
+router.delete('/telegram/movie/:messageId', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const { messageId } = req.params;
+  if (!isValidId(messageId)) { res.status(400).json({ error: 'Invalid messageId' }); return; }
+  try {
+    // removeSeedMovie handles both in-memory and DB deletion
+    const removed = removeSeedMovie(messageId);
+    // Also delete directly from DB in case the movie is in DB but not in seedMovies (cold start)
+    const { db: dbConn, moviesTable: mt } = await import('@workspace/db');
+    const { eq: eqOp } = await import('drizzle-orm');
+    await dbConn.delete(mt).where(eqOp(mt.messageId, messageId)).catch(() => {});
+    req.log.info({ messageId, inMemory: removed }, '[delete-movie] deleted');
+    res.json({ ok: true, removed: true });
+  } catch (err) {
+    req.log.error({ err }, '[delete-movie] failed');
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── Admin: delete movies matching a title pattern ─────────────────────────
+router.delete('/telegram/movie-by-title', async (req, res) => {
+  if (!requireSecret(req, res)) return;
+  const titleQuery = ((req.query['title'] as string) ?? '').trim();
+  if (!titleQuery || titleQuery.length < 2) {
+    res.status(400).json({ error: 'title query param required (min 2 chars)' }); return;
+  }
+  try {
+    const lower = titleQuery.toLowerCase();
+    const toDelete = seedMovies.filter((m) => m.title.toLowerCase().includes(lower));
+    const ids = toDelete.map((m) => m.id);
+    // Remove from memory and DB
+    for (const id of ids) removeSeedMovie(id);
+    req.log.info({ count: ids.length, pattern: titleQuery }, '[delete-by-title] deleted');
+    res.json({ ok: true, removed: ids.length, titles: toDelete.map((m) => m.title) });
+  } catch (err) {
+    req.log.error({ err }, '[delete-by-title] failed');
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 // ── Admin: reset poster to "" for a specific title pattern (triggers re-enrich) ──
 router.post('/telegram/reset-poster', async (req, res) => {

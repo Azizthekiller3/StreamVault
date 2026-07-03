@@ -361,9 +361,11 @@ export async function reparseMovieFromTelegram(id: string): Promise<TelegramMovi
 }
 
 
-// Check if a URL is a Telegram CDN URL (not usable in browsers due to CORS/auth)
+// Check if a URL is a Telegram CDN URL or a bot-photo-proxy URL.
+// Both need TMDB re-enrichment: CDN URLs fail in browsers (CORS), and bot-proxy
+// URLs may serve the WRONG scene-still photo posted by the channel admin.
 function isTelegramCdnUrl(url: string): boolean {
-  return /telesco\.pe|cdn\.telegram|t\.me/i.test(url);
+  return /telesco\.pe|cdn\.telegram|t\.me|\/api\/telegram\/photo\//i.test(url);
 }
 
 /** Enriches a movie's poster with TMDB in the background if the poster is
