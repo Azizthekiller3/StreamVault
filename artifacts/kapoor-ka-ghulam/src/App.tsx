@@ -7,13 +7,11 @@ import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import Search from "@/pages/search";
 import Info from "@/pages/info";
-import History from "@/pages/history";
 import Marketplace from "@/pages/marketplace";
 import Settings from "@/pages/settings";
 import Watch from "@/pages/watch";
 import Browse from "@/pages/browse";
 import TelegramInfo from "@/pages/telegram-info";
-import DownloadHistory from "@/pages/download-history";
 import AdminPage from "@/pages/admin";
 import React from "react";
 
@@ -113,9 +111,7 @@ function App() {
                       <Route path="/search" component={Search} />
                       <Route path="/info" component={Info} />
                       <Route path="/telegram-info" component={TelegramInfo} />
-                      <Route path="/downloads" component={DownloadHistory} />
                       <Route path="/browse" component={Browse} />
-                      <Route path="/history" component={History} />
                       <Route path="/marketplace" component={Marketplace} />
                       <Route path="/settings" component={Settings} />
                       <Route component={NotFound} />

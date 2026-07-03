@@ -533,7 +533,29 @@ export async function fetchChannelMovies(
     });
   });
 
-  const result = { movies: movies.reverse(), hasMore: movies.length > 0 };
+  // ── Filter out cam/TC-only rips (HDTC, HD-TC, HDCAM, CAM, TS, TC) ─────────
+  const CAM_RE = /^(hdtc|hd[- ]?tc|hdcam|cam\b|ts\b|tc\b)/i;
+  const filtered = movies.filter(
+    (m) => !m.qualities.every((q) => CAM_RE.test(q.quality.trim()))
+  );
+
+  // ── Deduplicate by normalized title (keep first = most recent post) ────────
+  const normTitle = (t: string) =>
+    t.toLowerCase()
+      .replace(/\b(480p|720p|1080p|2160p|4k|hdr|bluray|bdrip|brrip|web.?dl|webrip|hdcam|hdtc|cam|ts\b|hevc|x264|x265|hq|dvdrip|dvdscr|hindi|english|tamil|telugu|dual|multi|dubbed|s\d{2}e?\d{2}|season\s*\d+|part\s*\d+|ep\s*\d+)\b/gi, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+  const seenTitles = new Set<string>();
+  const deduped = filtered.filter((m) => {
+    const key = normTitle(m.title);
+    if (!key || seenTitles.has(key)) return false;
+    seenTitles.add(key);
+    return true;
+  });
+
+  const result = { movies: deduped.reverse(), hasMore: deduped.length > 0 };
   cache.set(cacheKey, { data: result, ts: Date.now() });
   return {
     movies: mergeSeed(result.movies),

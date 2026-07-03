@@ -168,36 +168,6 @@ export interface ContentInfo {
   country: string;
 }
 
-export interface HistoryItem {
-  id: number;
-  title: string;
-  poster: string;
-  link: string;
-  provider: string;
-  type: string;
-  /** @nullable */
-  imdbId?: string | null;
-  /** @nullable */
-  progress?: number | null;
-  /** @nullable */
-  duration?: number | null;
-  /** @nullable */
-  episodeTitle?: string | null;
-  watchedAt: string;
-}
-
-export interface HistoryInput {
-  title: string;
-  poster: string;
-  link: string;
-  provider: string;
-  type: string;
-  imdbId?: string;
-  progress?: number;
-  duration?: number;
-  episodeTitle?: string;
-}
-
 export interface AppSettings {
   /** @nullable */
   activeExtId: number | null;
@@ -210,7 +180,6 @@ export interface AppSettingsInput {
 }
 
 export interface UserStats {
-  historyCount: number;
   extensionsCount: number;
   sourcesCount: number;
 }

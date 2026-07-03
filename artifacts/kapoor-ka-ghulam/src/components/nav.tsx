@@ -1,12 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { Home, Search, Clock, Download, Settings } from "lucide-react";
+import { Home, Search, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/search", label: "Search", icon: Search },
-  { href: "/history", label: "History", icon: Clock },
-  { href: "/downloads", label: "Downloads", icon: Download },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

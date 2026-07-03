@@ -1,20 +1,18 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { historyTable, installedExtensionsTable, providerSourcesTable } from "@workspace/db";
+import { installedExtensionsTable, providerSourcesTable } from "@workspace/db";
 import { count } from "drizzle-orm";
 
 const router = Router();
 
 router.get("/stats", async (req, res) => {
   try {
-    const [[historyCount], [extensionsCount], [sourcesCount]] = await Promise.all([
-      db.select({ count: count() }).from(historyTable),
+    const [[extensionsCount], [sourcesCount]] = await Promise.all([
       db.select({ count: count() }).from(installedExtensionsTable),
       db.select({ count: count() }).from(providerSourcesTable),
     ]);
 
     res.json({
-      historyCount: historyCount.count,
       extensionsCount: extensionsCount.count,
       sourcesCount: sourcesCount.count,
     });

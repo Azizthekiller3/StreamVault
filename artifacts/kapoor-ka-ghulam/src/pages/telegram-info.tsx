@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api-base";
 import { detectGenres } from "@/lib/genres";
-import { getRating, setRating, addRecentlyViewed, addDownloadHistory } from "@/lib/flixnest-store";
+import { getRating, setRating, addRecentlyViewed } from "@/lib/flixnest-store";
 import { useLocation, useSearch } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { isSeries } from "./home";
@@ -419,17 +419,6 @@ export default function TelegramInfo() {
     }
   };
 
-  const recordDownload = (quality: string, url: string) => {
-    if (!movie) return;
-    addDownloadHistory({
-      movieId: movie.id,
-      title: movie.title,
-      poster: tmdb?.poster || movie.poster || "",
-      quality,
-      url,
-    });
-  };
-
   const displayPoster = tmdb?.poster || movie?.poster || "";
   const backdropImage = tmdb?.backdrop || tmdb?.poster || movie?.poster || "";
   const allGenres = tmdb?.genres?.length
@@ -687,7 +676,6 @@ export default function TelegramInfo() {
                   href={q.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => recordDownload(q.quality, q.url)}
                   className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-white text-xs font-bold"
                   style={{ background: "#dc2626" }}
                 >

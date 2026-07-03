@@ -313,77 +313,6 @@ export const GetContentInfoResponse = zod.object({
 
 
 /**
- * @summary Get watch history
- */
-export const GetHistoryResponseItem = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "poster": zod.string(),
-  "link": zod.string(),
-  "provider": zod.string(),
-  "type": zod.string(),
-  "imdbId": zod.string().nullish(),
-  "progress": zod.number().nullish(),
-  "duration": zod.number().nullish(),
-  "episodeTitle": zod.string().nullish(),
-  "watchedAt": zod.string()
-})
-export const GetHistoryResponse = zod.array(GetHistoryResponseItem)
-
-
-/**
- * @summary Add or update watch history
- */
-export const UpsertHistoryBody = zod.object({
-  "title": zod.string(),
-  "poster": zod.string(),
-  "link": zod.string(),
-  "provider": zod.string(),
-  "type": zod.string(),
-  "imdbId": zod.string().optional(),
-  "progress": zod.number().optional(),
-  "duration": zod.number().optional(),
-  "episodeTitle": zod.string().optional()
-})
-
-export const UpsertHistoryResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "poster": zod.string(),
-  "link": zod.string(),
-  "provider": zod.string(),
-  "type": zod.string(),
-  "imdbId": zod.string().nullish(),
-  "progress": zod.number().nullish(),
-  "duration": zod.number().nullish(),
-  "episodeTitle": zod.string().nullish(),
-  "watchedAt": zod.string()
-})
-
-
-/**
- * @summary Clear all history
- */
-export const ClearHistoryResponse = zod.object({
-  "success": zod.boolean(),
-  "message": zod.string().optional()
-})
-
-
-/**
- * @summary Delete a history item
- */
-export const DeleteHistoryItemParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const DeleteHistoryItemResponse = zod.object({
-  "success": zod.boolean(),
-  "message": zod.string().optional()
-})
-
-
-/**
  * @summary Get all settings
  */
 export const GetSettingsResponse = zod.object({
@@ -410,7 +339,6 @@ export const UpdateSettingsResponse = zod.object({
  * @summary Get user stats
  */
 export const GetStatsResponse = zod.object({
-  "historyCount": zod.number(),
   "extensionsCount": zod.number(),
   "sourcesCount": zod.number()
 })

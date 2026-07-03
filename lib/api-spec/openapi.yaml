@@ -12,7 +12,6 @@ tags:
   - name: sources
   - name: extensions
   - name: content
-  - name: history
   - name: settings
   - name: search
 
@@ -412,71 +411,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ContentInfo"
 
-  # ── History ───────────────────────────────────────────────────
-  /history:
-    get:
-      operationId: getHistory
-      tags: [history]
-      summary: Get watch history
-      responses:
-        "200":
-          description: History items
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HistoryItem"
-
-    post:
-      operationId: upsertHistory
-      tags: [history]
-      summary: Add or update watch history
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/HistoryInput"
-      responses:
-        "200":
-          description: Upserted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HistoryItem"
-
-    delete:
-      operationId: clearHistory
-      tags: [history]
-      summary: Clear all history
-      responses:
-        "200":
-          description: Cleared
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessResponse"
-
-  /history/{id}:
-    delete:
-      operationId: deleteHistoryItem
-      tags: [history]
-      summary: Delete a history item
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessResponse"
-
   # ── Settings ──────────────────────────────────────────────────
   /settings:
     get:
@@ -807,57 +741,6 @@ components:
           type: string
       required: [imdbId, title, year, type, poster, plot, rating, genre, actors, runtime, language, country]
 
-    # ── History ───────────────────────────────────────────────────
-    HistoryItem:
-      type: object
-      properties:
-        id:
-          type: integer
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: ["string", "null"]
-        progress:
-          type: ["number", "null"]
-        duration:
-          type: ["number", "null"]
-        episodeTitle:
-          type: ["string", "null"]
-        watchedAt:
-          type: string
-      required: [id, title, poster, link, provider, type, watchedAt]
-
-    HistoryInput:
-      type: object
-      properties:
-        title:
-          type: string
-        poster:
-          type: string
-        link:
-          type: string
-        provider:
-          type: string
-        type:
-          type: string
-        imdbId:
-          type: string
-        progress:
-          type: number
-        duration:
-          type: number
-        episodeTitle:
-          type: string
-      required: [title, poster, link, provider, type]
-
     # ── Settings ──────────────────────────────────────────────────
     AppSettings:
       type: object
@@ -880,10 +763,8 @@ components:
     UserStats:
       type: object
       properties:
-        historyCount:
-          type: integer
         extensionsCount:
           type: integer
         sourcesCount:
           type: integer
-      required: [historyCount, extensionsCount, sourcesCount]
+      required: [extensionsCount, sourcesCount]
