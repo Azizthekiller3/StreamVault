@@ -33,6 +33,16 @@ export function isSeries(title: string): boolean {
   return /\b(S\d{2}|Season|Series|E\d{2}|Episode|Web.?Series)\b/i.test(title);
 }
 
+/** Builds the full display title like MoviesDrive:
+ *  "Lingam (2026) [Hindi DD5.1 + English] 480p | 720p | 1080p" */
+function buildDisplayTitle(movie: TelegramMovie): string {
+  const parts: string[] = [movie.title];
+  if (movie.audio) parts.push(`[${movie.audio}]`);
+  const quals = (movie.qualities ?? []).map((q) => q.quality).filter(Boolean);
+  if (quals.length) parts.push(quals.join(" | "));
+  return parts.join(" ");
+}
+
 function getQualityBadge(movie: TelegramMovie): string {
   const text = [movie.title, ...(movie.qualities ?? []).map((q) => q.quality)].join(" ");
   if (/\b(4[Kk]|2160p)\b/.test(text)) return "4K";
@@ -320,7 +330,7 @@ export default function Home() {
                   {/* ── Full title below card ── */}
                   <div className="mt-2 px-0.5">
                     <p className="text-xs font-medium leading-snug line-clamp-4" style={{ color: "#e5e5e5" }}>
-                      {movie.title}
+                      {buildDisplayTitle(movie)}
                     </p>
                   </div>
                 </motion.div>
