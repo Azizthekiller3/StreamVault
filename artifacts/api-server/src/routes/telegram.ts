@@ -504,14 +504,16 @@ router.delete('/telegram/movie/:messageId', async (req, res) => {
   const { messageId } = req.params;
   if (!isValidId(messageId)) { res.status(400).json({ error: 'Invalid messageId' }); return; }
   try {
-    // removeSeedMovie handles both in-memory and DB deletion
-    const removed = removeSeedMovie(messageId);
-    // Also delete directly from DB in case the movie is in DB but not in seedMovies (cold start)
     const { db: dbConn, moviesTable: mt } = await import('@workspace/db');
     const { eq: eqOp } = await import('drizzle-orm');
-    await dbConn.delete(mt).where(eqOp(mt.messageId, messageId)).catch(() => {});
-    req.log.info({ messageId, inMemory: removed }, '[delete-movie] deleted');
-    res.json({ ok: true, removed: true });
+    // Delete from DB first (source of truth) — works even on cold start when seedMovies is empty
+    const dbResult = await dbConn.delete(mt).where(eqOp(mt.messageId, messageId)).returning({ id: mt.messageId });
+    // Also remove from in-memory cache
+    removeSeedMovie(messageId);
+    const found = dbResult.length > 0;
+    req.log.info({ messageId, found }, '[delete-movie] done');
+    if (!found) { res.status(404).json({ ok: false, error: 'Movie not found' }); return; }
+    res.json({ ok: true, removed: 1 });
   } catch (err) {
     req.log.error({ err }, '[delete-movie] failed');
     res.status(500).json({ error: String(err) });
@@ -526,13 +528,18 @@ router.delete('/telegram/movie-by-title', async (req, res) => {
     res.status(400).json({ error: 'title query param required (min 2 chars)' }); return;
   }
   try {
-    const lower = titleQuery.toLowerCase();
-    const toDelete = seedMovies.filter((m) => m.title.toLowerCase().includes(lower));
-    const ids = toDelete.map((m) => m.id);
-    // Remove from memory and DB
-    for (const id of ids) removeSeedMovie(id);
-    req.log.info({ count: ids.length, pattern: titleQuery }, '[delete-by-title] deleted');
-    res.json({ ok: true, removed: ids.length, titles: toDelete.map((m) => m.title) });
+    const { pool: pgPool } = await import('@workspace/db');
+    // Delete from DB using ILIKE — covers cold-start rows not yet in seedMovies
+    const dbResult = await pgPool.query<{ message_id: string; title: string }>(
+      `DELETE FROM telegram_movies WHERE title ILIKE $1 RETURNING message_id, title`,
+      [`%${titleQuery}%`]
+    );
+    const deletedIds = dbResult.rows.map((r) => r.message_id);
+    const deletedTitles = dbResult.rows.map((r) => r.title);
+    // Reconcile in-memory store
+    for (const id of deletedIds) removeSeedMovie(id);
+    req.log.info({ count: deletedIds.length, pattern: titleQuery }, '[delete-by-title] deleted');
+    res.json({ ok: true, removed: deletedIds.length, titles: deletedTitles });
   } catch (err) {
     req.log.error({ err }, '[delete-by-title] failed');
     res.status(500).json({ error: String(err) });
