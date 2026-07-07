@@ -221,8 +221,8 @@ async function fetchMovieDetail(id: number, apiKey: string): Promise<TmdbEnrichm
   return {
     tmdbId: d.id, imdbId: d.external_ids?.imdb_id ?? null,
     overview: d.overview ?? "",
-    poster: d.poster_path ? `${IMG_BASE}/w500${d.poster_path}` : "",
-    backdrop: d.backdrop_path ? `${IMG_BASE}/w1280${d.backdrop_path}` : "",
+    poster: d.poster_path ? `${IMG_BASE}/w342${d.poster_path}` : "",
+    backdrop: d.backdrop_path ? `${IMG_BASE}/w780${d.backdrop_path}` : "",
     rating: Math.round((d.vote_average ?? 0) * 10) / 10,
     voteCount: d.vote_count ?? 0,
     year: (d.release_date ?? "").split("-")[0] ?? "",
@@ -250,8 +250,8 @@ async function fetchTvDetail(id: number, apiKey: string): Promise<TmdbEnrichment
   return {
     tmdbId: tv.id, imdbId: tv.external_ids?.imdb_id ?? null,
     overview: tv.overview ?? "",
-    poster: tv.poster_path ? `${IMG_BASE}/w500${tv.poster_path}` : "",
-    backdrop: tv.backdrop_path ? `${IMG_BASE}/w1280${tv.backdrop_path}` : "",
+    poster: tv.poster_path ? `${IMG_BASE}/w342${tv.poster_path}` : "",
+    backdrop: tv.backdrop_path ? `${IMG_BASE}/w780${tv.backdrop_path}` : "",
     rating: Math.round((tv.vote_average ?? 0) * 10) / 10,
     voteCount: tv.vote_count ?? 0,
     year: (tv.first_air_date ?? "").split("-")[0] ?? "",

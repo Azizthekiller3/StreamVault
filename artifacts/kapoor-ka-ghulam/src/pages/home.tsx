@@ -73,6 +73,52 @@ function parseTitleAndYear(raw: string): { name: string; year: string | null } {
   return { name, year };
 }
 
+// ── Blur-up poster image ────────────────────────────────────────────────────
+// Shows a tiny w92 TMDB thumbnail (blurred) instantly, then crossfades to
+// the full w342 image once it loads. On slow connections this gives immediate
+// visual feedback instead of a blank card for several seconds.
+function PosterImage({ src, alt, priority }: { src: string; alt: string; priority: boolean }) {
+  const [loaded, setLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  // Derive w92 thumbnail from TMDB URL — e.g. /t/p/w342/abc.jpg → /t/p/w92/abc.jpg
+  const isTmdb = src.startsWith("https://image.tmdb.org/");
+  const thumbSrc = isTmdb ? src.replace(/\/t\/p\/w\d+\//, "/t/p/w92/") : null;
+
+  if (imgError) return null;
+
+  return (
+    <>
+      {/* Tiny blurred placeholder — appears almost instantly (w92 ≈ 2-4 KB) */}
+      {thumbSrc && (
+        <img
+          src={thumbSrc}
+          alt=""
+          aria-hidden={true}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{
+            filter: "blur(14px)",
+            transform: "scale(1.12)",
+            opacity: loaded ? 0 : 1,
+            transition: "opacity 0.4s ease",
+          }}
+        />
+      )}
+      {/* Full-quality poster — fades in over the blur once loaded */}
+      <img
+        src={src}
+        alt={alt}
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ opacity: loaded ? 1 : 0, transition: "opacity 0.5s ease" }}
+        loading={priority ? "eager" : "lazy"}
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        onError={() => setImgError(true)}
+      />
+    </>
+  );
+}
+
 type Category = "All" | "Bollywood" | "Hollywood" | "South Indian" | "Web Series" | "Netflix";
 const CATS: Category[] = ["All", "Bollywood", "Hollywood", "South Indian", "Web Series", "Netflix"];
 
@@ -290,33 +336,21 @@ export default function Home() {
                       border: "1px solid rgba(255,255,255,0.06)",
                     }}
                   >
-                    {movie.poster ? (
-                      <img
-                        src={movie.poster}
-                        alt={name}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = "none";
-                          const ph = e.currentTarget.nextElementSibling as HTMLElement | null;
-                          if (ph) ph.style.display = "flex";
-                        }}
-                      />
-                    ) : null}
-
-                    {/* Placeholder */}
+                    {/* Placeholder — always rendered behind; visible when poster is missing or failed */}
                     <div
                       className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3"
-                      style={{
-                        display: movie.poster ? "none" : "flex",
-                        background: "linear-gradient(135deg,#1c1c1c 0%,#2b1818 100%)",
-                      }}
+                      style={{ background: "linear-gradient(135deg,#1c1c1c 0%,#2b1818 100%)" }}
                     >
                       <Film className="w-8 h-8 shrink-0" style={{ color: "#dc2626", opacity: 0.6 }} />
                       <p className="text-center leading-snug line-clamp-4 text-xs font-medium" style={{ color: "rgba(255,255,255,0.7)" }}>
                         {name}
                       </p>
                     </div>
+
+                    {/* Poster — covers placeholder; blur-up from w92 thumbnail to full w342 */}
+                    {movie.poster && (
+                      <PosterImage src={movie.poster} alt={name} priority={i < 4} />
+                    )}
 
                     {/* Quality badge — bottom-right */}
                     <span
